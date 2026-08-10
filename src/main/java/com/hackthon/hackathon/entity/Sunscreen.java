@@ -47,5 +47,6 @@ public class Sunscreen {
     private String spf;//erd에는 숫자입력으로 했는데 08.11 00:08 기준 50+ 입력 사항 때문에 string으로 바꿀게용
 
     @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
     private Pa pa;
 }
