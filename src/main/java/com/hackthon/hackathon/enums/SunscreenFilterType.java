@@ -1,0 +1,6 @@
+package com.hackthon.hackathon.enums;
+
+public enum SunscreenFilterType {
+    PHYSICAL,   // 무기자차
+    CHEMICAL    // 유기자차
+}
