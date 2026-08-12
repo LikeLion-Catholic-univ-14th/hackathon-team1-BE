@@ -1,5 +1,6 @@
 package com.hackthon.hackathon.dto.home;
 
+import com.hackthon.hackathon.dto.SolutionAiResponse;
 import com.hackthon.hackathon.enums.RiskLevel;
 import com.hackthon.hackathon.service.UserSunscreenService;
 

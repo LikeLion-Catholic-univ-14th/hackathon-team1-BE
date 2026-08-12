@@ -19,6 +19,11 @@ public interface ScheduleRepository extends JpaRepository<Schedule, Long> {
             LocalDateTime start,
             LocalDateTime end
     );
+    Optional<Schedule>
+    findFirstByUserAndArrivalTimeBeforeOrderByArrivalTimeDesc(
+            User user,
+            LocalDateTime now
+    );
 
     // 현재 도착지에서 출발하는 가장 가까운 다음 비행편 조회
     // 예: ICN → SYD 도착 후, SYD에서 출발하는 가장 빠른 일정
@@ -28,4 +33,10 @@ public interface ScheduleRepository extends JpaRepository<Schedule, Long> {
             String departureAirport,
             LocalDateTime after
     );
+    Optional<Schedule>
+    findFirstByUserAndArrivalTimeLessThanEqualOrderByArrivalTimeDesc(
+            User user,
+            LocalDateTime dateTime
+    );
+
 }

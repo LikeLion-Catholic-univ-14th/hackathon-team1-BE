@@ -1,6 +1,8 @@
 package com.hackthon.hackathon.service;
 
 import com.hackthon.hackathon.entity.Sunscreen;
+import com.hackthon.hackathon.enums.SunscreenFilterType;
+import com.hackthon.hackathon.enums.SunscreenProductType;
 import com.hackthon.hackathon.repository.SunscreenRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -37,6 +39,7 @@ public class UserSunscreenService {
                             sunscreen.getId(),
                             sunscreen.getBrand(),
                             sunscreen.getName(),
+                            sunscreen.getFilterType(),
                             sunscreen.getProductType(),
                             sunscreen.getSpf(),
                             result.effectiveSpf(),
@@ -51,7 +54,8 @@ public class UserSunscreenService {
             Long sunscreenId,
             String brand,
             String name,
-            com.hackthon.hackathon.enums.SunscreenProductType productType,
+            SunscreenFilterType filterType,
+            SunscreenProductType productType,
             String displayedSpf,
             double effectiveSpf,
             int requiredSpf,
