@@ -47,4 +47,16 @@ public class User {
 
     @Column(name = "procedure_within_one_month")
     private Boolean procedureWithinOneMonth;
+
+    public void setupProfile(String name, BaseAirport baseAirport, Set<SkinType> skinTypes,
+                             Set<SkinConcern> skinConcerns, boolean hasProcedureHistory,
+                             String procedureDetails, Boolean procedureWithinOneMonth) {
+        this.name = name;
+        this.baseAirport = baseAirport;
+        this.skinTypes = skinTypes;
+        this.skinConcerns = skinConcerns;
+        this.hasProcedureHistory = hasProcedureHistory;
+        this.procedureDetails = procedureDetails;
+        this.procedureWithinOneMonth = procedureWithinOneMonth;
+    }
 }
