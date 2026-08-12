@@ -3,9 +3,7 @@ package com.hackthon.hackathon.entity;
 import com.hackthon.hackathon.enums.LocationType;
 import com.hackthon.hackathon.enums.RiskLevel;
 import jakarta.persistence.*;
-import lombok.AccessLevel;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
+import lombok.*;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -13,7 +11,9 @@ import java.time.LocalDateTime;
 @Entity
 @Table(name = "exposure_record")
 @Getter
+@AllArgsConstructor(access = AccessLevel.PROTECTED)
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
+@Builder
 public class ExposureRecord {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
