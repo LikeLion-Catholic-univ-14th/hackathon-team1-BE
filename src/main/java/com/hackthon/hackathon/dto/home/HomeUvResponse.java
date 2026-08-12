@@ -1,6 +1,8 @@
 package com.hackthon.hackathon.dto.home;
 
+import com.hackthon.hackathon.dto.SolutionAiResponse;
 import com.hackthon.hackathon.enums.RiskLevel;
+import com.hackthon.hackathon.service.UserSunscreenService;
 
 import java.util.List;
 
@@ -18,6 +20,8 @@ public record HomeUvResponse(
         String weatherCondition,
         RiskLevel riskLevel,
 
-        List<UvGraphPoint> uvGraph
+        List<UvGraphPoint> uvGraph,
+
+        List<UserSunscreenService.SunscreenProtectionResponse> sunscreens
 ) {
 }
