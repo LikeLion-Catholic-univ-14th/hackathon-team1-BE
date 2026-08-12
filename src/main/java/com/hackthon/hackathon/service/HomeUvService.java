@@ -23,8 +23,10 @@ public class HomeUvService {
     private final WeatherService weatherService;
     private final TimeConversionService timeConversionService;
     private final ExposureCalculationService exposureCalculationService;
+    private final UserSunscreenService userSunscreenService;
 
     public HomeUvResponse createTestHomeUv(
+            Long userId,
             String airportCode,
             ExposureCalculationService.ExposureResult result,
             List<SunlightWindowService.SunlightWindow> windows
@@ -66,6 +68,16 @@ public class HomeUvService {
                 .mapToDouble(UvGraphPoint::uvValue)
                 .max()
                 .orElse(0.0);
+        List<UserSunscreenService.SunscreenProtectionResponse> sunscreens =
+                userSunscreenService.calculateUserSunscreens(
+                        userId,
+                        todayMaxUv
+                );
+        UserSunscreenService.SunscreenProtectionResponse recommendedSunscreen =
+                userSunscreenService.recommendSunscreen(
+                        userId,
+                        todayMaxUv
+                );
 
         return new HomeUvResponse(
                 airport.city(),
@@ -81,7 +93,8 @@ public class HomeUvService {
                 weatherCondition,
                 result.riskLevel(),
 
-                uvGraph
+                uvGraph,
+                sunscreens
         );
     }
 

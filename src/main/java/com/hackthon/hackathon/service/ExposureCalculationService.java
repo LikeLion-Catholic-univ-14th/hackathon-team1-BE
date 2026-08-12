@@ -32,8 +32,10 @@ public class ExposureCalculationService {
             for (SunlightWindowService.SunlightWindow window : windows) {
 
                 boolean included =
-                        !time.isBefore(window.start())
-                                && time.isBefore(window.end());
+                        overlapsHourlyInterval(
+                                time,
+                                window
+                        );
 
                 if (included) {
 
@@ -272,8 +274,10 @@ public class ExposureCalculationService {
             for (SunlightWindowService.SunlightWindow window : windows) {
 
                 boolean included =
-                        !time.isBefore(window.start())
-                                && time.isBefore(window.end());
+                        overlapsHourlyInterval(
+                                time,
+                                window
+                        );
 
                 if (included) {
                     Integer weatherCode = weatherCodes.get(i);
@@ -303,6 +307,15 @@ public class ExposureCalculationService {
                 .orElse(0);
 
         return convertWeatherCode(representativeCode);
+    }
+    private boolean overlapsHourlyInterval(
+            LocalDateTime hourlyStart,
+            SunlightWindowService.SunlightWindow window
+    ) {
+        LocalDateTime hourlyEnd = hourlyStart.plusHours(1);
+
+        return hourlyStart.isBefore(window.end())
+                && hourlyEnd.isAfter(window.start());
     }
 
 }
