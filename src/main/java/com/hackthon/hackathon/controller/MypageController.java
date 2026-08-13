@@ -47,4 +47,24 @@ public class MypageController {
         mypageService.deleteSunscreen(productId);
         return ResponseEntity.ok("선크림 삭제 성공!");
     }
+
+    @PostMapping("/procedures")
+    public org.springframework.http.ResponseEntity<String> addProcedure(
+            @org.springframework.web.bind.annotation.RequestBody com.hackthon.hackathon.dto.ProcedureDto.Request request) {
+        mypageService.addProcedure(request);
+        return org.springframework.http.ResponseEntity.ok("시술 이력 등록 성공!");
+    }
+
+    @GetMapping("/procedures")
+    public org.springframework.http.ResponseEntity<java.util.List<com.hackthon.hackathon.dto.ProcedureDto.Response>> getProcedures() {
+        return org.springframework.http.ResponseEntity.ok(mypageService.getProcedures());
+    }
+
+    @DeleteMapping("/procedures/{procedureId}")
+    public org.springframework.http.ResponseEntity<String> deleteProcedure(
+            @org.springframework.web.bind.annotation.PathVariable Long procedureId) {
+        mypageService.deleteProcedure(procedureId);
+        return org.springframework.http.ResponseEntity.ok("시술 이력 삭제 성공!");
+    }
+
 }

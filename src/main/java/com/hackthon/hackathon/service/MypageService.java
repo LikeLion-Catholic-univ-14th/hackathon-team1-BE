@@ -1,7 +1,9 @@
 package com.hackthon.hackathon.service;
 
 import com.hackthon.hackathon.dto.MypageResponse;
+import com.hackthon.hackathon.dto.ProcedureDto;
 import com.hackthon.hackathon.dto.ProfileUpdateRequest;
+import com.hackthon.hackathon.entity.ProcedureHistory;
 import com.hackthon.hackathon.entity.Sunscreen;
 import com.hackthon.hackathon.entity.User;
 import com.hackthon.hackathon.enums.BaseAirport;
@@ -18,11 +20,17 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
+
 @Service
 @RequiredArgsConstructor
 public class MypageService {
     private final SunscreenRepository sunscreenRepository;
     private final UserRepository userRepository;
+    private final com.hackthon.hackathon.repository.ProcedureHistoryRepository procedureHistoryRepository;
 
     public MypageResponse getMypageProfile(){
         User user = userRepository.findById(1L)
@@ -108,5 +116,37 @@ public class MypageService {
                 .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 선크림입니다."));
 
         sunscreenRepository.delete(sunscreen);
+    }
+
+    @org.springframework.transaction.annotation.Transactional
+    public void addProcedure(ProcedureDto.Request request) {
+        // 현재 하드코딩된 1번 유저 사용
+        User user = userRepository.findById(1L)
+                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 유저입니다."));
+
+        ProcedureHistory procedure = ProcedureHistory.builder()
+                .user(user)
+                .name(request.getName())
+                .isRecentOneMonth(request.isRecentOneMonth())
+                .build();
+
+        procedureHistoryRepository.save(procedure);
+    }
+
+    // 2. 조회
+    public List<ProcedureDto.Response> getProcedures() {
+        return procedureHistoryRepository.findByUserId(1L).stream()
+                .map(p -> ProcedureDto.Response.builder()
+                        .procedureId(p.getId())
+                        .name(p.getName())
+                        .isRecentOneMonth(p.isRecentOneMonth())
+                        .build())
+                .collect(java.util.stream.Collectors.toList());
+    }
+
+    // 3. 삭제
+    @org.springframework.transaction.annotation.Transactional
+    public void deleteProcedure(Long procedureId) {
+        procedureHistoryRepository.deleteById(procedureId);
     }
 }
