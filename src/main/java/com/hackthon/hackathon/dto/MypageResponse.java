@@ -19,7 +19,9 @@ public class MypageResponse {
     public static class PouchItemDto {
         private Long productId;
         private String name;
-        private String type;
+        private String productType;
+        private String filterType;
         private String spf;
+        private String pa;
     }
 }
