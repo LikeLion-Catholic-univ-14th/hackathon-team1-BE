@@ -32,9 +32,10 @@ public class MypageService {
                 .map(sunscreen -> MypageResponse.PouchItemDto.builder()
                         .productId(sunscreen.getId())
                         .name(sunscreen.getName())
-                        // Enum 타입인 경우 .name()이나 .getDescription() 등으로 문자열 변환
-                        .type(sunscreen.getFilterType() != null ? sunscreen.getFilterType().name() : null)
+                        .productType(sunscreen.getProductType() != null ? sunscreen.getProductType().name() : null)
+                        .filterType(sunscreen.getFilterType() != null ? sunscreen.getFilterType().name() : null)
                         .spf(sunscreen.getSpf())
+                        .pa(sunscreen.getPa() != null ? sunscreen.getPa().name() : null)
                         .build())
                 .collect(Collectors.toList());
 
