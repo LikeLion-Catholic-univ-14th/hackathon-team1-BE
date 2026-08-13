@@ -1,0 +1,82 @@
+name: Spring Boot CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main", "develop" ]
+  pull_request:
+    branches: [ "main", "develop" ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. 소스 코드 가져오기
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # 2. JDK 17 세팅
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      # 3. application.yml 파일 생성 (깃허브 Secrets 이용)
+      - name: Make application.yml
+        run: |
+          cd ./src/main/resources
+          touch application.yml
+          echo "${{ secrets.APPLICATION_YML }}" > ./application.yml
+        shell: bash
+
+      # 4. gradlew 실행 권한 부여 및 빌드 (포장하기)
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build with Gradle
+        run: ./gradlew clean build -x test
+
+      # 5. EC2 서버로 파일 전송 및 실행 (배포하기)
+      - name: Deploy to EC2
+        env:
+          PRIVATE_KEY: ${{ secrets.EC2_SSH_KEY }}
+          HOST: ${{ secrets.EC2_HOST }}
+          USER: ubuntu
+        run: |
+          echo "$PRIVATE_KEY" > private_key && chmod 600 private_key
+
+          # EC2에 애플리케이션 디렉터리 생성
+          ssh -i private_key -o StrictHostKeyChecking=no ${USER}@${HOST} '
+            if [ ! -d "/opt/myapp" ]; then
+              sudo mkdir -p /opt/myapp && sudo chown ${USER}:${USER} /opt/myapp;
+            fi
+          '
+
+          # JAR 파일 빌드 경로 확인 및 전송
+          JAR_FILE=$(ls build/libs/*SNAPSHOT.jar | head -n 1)
+          echo "Deploying $JAR_FILE"
+          scp -i private_key -o StrictHostKeyChecking=no "$JAR_FILE" ${USER}@${HOST}:/opt/myapp/app.jar
+
+          # EC2에서 systemd 서비스 파일 생성 및 등록
+          ssh -i private_key -o StrictHostKeyChecking=no ${USER}@${HOST} '
+            echo "[Unit]
+            Description=MyApp Service
+            After=network.target
+
+            [Service]
+            User=${USER}
+            ExecStart=/usr/bin/java -jar /opt/myapp/app.jar
+            Restart=always
+
+            [Install]
+            WantedBy=multi-user.target" | sudo tee /etc/systemd/system/myapp.service
+            sudo systemctl daemon-reload
+            sudo systemctl enable myapp
+          '
+
+          # 기존 서버 멈추고 새 서버로 다시 시작
+          ssh -i private_key -o StrictHostKeyChecking=no ${USER}@${HOST} '
+            sudo systemctl stop myapp || true
+            sudo systemctl start myapp
+          '
