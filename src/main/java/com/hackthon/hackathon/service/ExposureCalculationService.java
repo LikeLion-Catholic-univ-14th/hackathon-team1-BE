@@ -317,5 +317,132 @@ public class ExposureCalculationService {
         return hourlyStart.isBefore(window.end())
                 && hourlyEnd.isAfter(window.start());
     }
+    public double calculateDailyExposureScore(
+            WeatherResponse weather
+    ) {
+
+        List<Double> uvIndexes =
+                weather.getHourly().getUvIndex();
+
+        if (uvIndexes == null || uvIndexes.isEmpty()) {
+            return 0.0;
+        }
+
+        double totalUv =
+                uvIndexes.stream()
+                        .filter(java.util.Objects::nonNull)
+                        .mapToDouble(Double::doubleValue)
+                        .sum();
+
+        return totalUv;
+    }
+    public double calculateSeoulDailyExposureScore(
+            WeatherResponse weather
+    ) {
+
+        if (weather == null
+                || weather.getHourly() == null
+                || weather.getDaily() == null
+                || weather.getDaily().getSunrise() == null
+                || weather.getDaily().getSunset() == null
+                || weather.getDaily().getSunrise().isEmpty()
+                || weather.getDaily().getSunset().isEmpty()) {
+
+            return 0.0;
+        }
+
+        LocalDateTime sunrise =
+                LocalDateTime.parse(
+                        weather.getDaily()
+                                .getSunrise()
+                                .get(0)
+                );
+
+        LocalDateTime sunset =
+                LocalDateTime.parse(
+                        weather.getDaily()
+                                .getSunset()
+                                .get(0)
+                );
+
+        List<String> times =
+                weather.getHourly().getTime();
+
+        List<Double> uvIndexes =
+                weather.getHourly().getUvIndex();
+
+        List<Double> daylightUv =
+                new ArrayList<>();
+
+        for (int i = 0; i < times.size(); i++) {
+
+            LocalDateTime time =
+                    LocalDateTime.parse(
+                            times.get(i)
+                    );
+
+            if (time.isBefore(sunrise)
+                    || !time.isBefore(sunset)) {
+                continue;
+            }
+
+            Double uv = uvIndexes.get(i);
+
+            if (uv != null) {
+                daylightUv.add(uv);
+            }
+        }
+
+        if (daylightUv.isEmpty()) {
+            return 0.0;
+        }
+
+        double averageUv =
+                daylightUv.stream()
+                        .mapToDouble(Double::doubleValue)
+                        .average()
+                        .orElse(0.0);
+
+        int sunlightMinutes =
+                (int) java.time.Duration
+                        .between(
+                                sunrise,
+                                sunset
+                        )
+                        .toMinutes();
+
+        return calculateExposureScore(
+                averageUv,
+                sunlightMinutes
+        );
+
+    }
+    public double calculateSeoulComparableExposureScore(
+            WeatherResponse seoulWeather,
+            int targetSunlightMinutes
+    ) {
+
+        if (seoulWeather == null
+                || seoulWeather.getHourly() == null
+                || seoulWeather.getHourly().getUvIndex() == null) {
+            return 0.0;
+        }
+
+        List<Double> uvIndexes =
+                seoulWeather.getHourly().getUvIndex();
+
+        double averageUv =
+                uvIndexes.stream()
+                        .filter(java.util.Objects::nonNull)
+                        .filter(uv -> uv > 0)
+                        .mapToDouble(Double::doubleValue)
+                        .average()
+                        .orElse(0.0);
+
+        return calculateExposureScore(
+                averageUv,
+                targetSunlightMinutes
+        );
+    }
 
 }

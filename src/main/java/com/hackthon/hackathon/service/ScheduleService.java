@@ -4,6 +4,7 @@ import com.hackthon.hackathon.dto.*;
 import com.hackthon.hackathon.entity.Schedule;
 import com.hackthon.hackathon.entity.Sunscreen;
 import com.hackthon.hackathon.entity.User;
+import com.hackthon.hackathon.repository.ExposureRecordRepository;
 import com.hackthon.hackathon.repository.ScheduleRepository;
 import com.hackthon.hackathon.repository.SunscreenRepository;
 import com.hackthon.hackathon.repository.UserRepository;
@@ -20,7 +21,8 @@ public class ScheduleService {
     private final ScheduleRepository scheduleRepository;
     private final UserRepository userRepository;
     private final SunscreenRepository sunscreenRepository;
-
+    private final ExposureRecordService exposureRecordService;
+    private final ExposureRecordRepository exposureRecordRepository;
     // 일정 여러 개 최종 등록
     @Transactional
     public ScheduleCreateResponse createSchedule(
@@ -54,22 +56,20 @@ public class ScheduleService {
                                         item.arrivalAirport(),
                                         item.departureTime(),
                                         item.arrivalTime(),
-
-                                        // 현재 등록 API 명세에는
-                                        // quickTurn 필드가 없으므로 기본값
                                         false
                                 )
                         )
                         .toList();
 
-        scheduleRepository.saveAll(schedules);
+        scheduleRepository.saveAll(
+                schedules
+        );
 
         return new ScheduleCreateResponse(
                 "SUCCESS",
                 "프로필이 완성되었어요!"
         );
     }
-
 
     // 외출 여부 수정
     @Transactional
@@ -86,14 +86,19 @@ public class ScheduleService {
                                 )
                         );
 
+        // Schedule 변경
         schedule.updateOuting(
+                outing
+        );
+
+        // 이미 생성된 ExposureRecord에도 동일하게 반영
+        exposureRecordService.updateOuting(
+                schedule,
                 outing
         );
 
         return schedule;
     }
-
-
 
     // 일정 수정
     @Transactional
@@ -109,7 +114,9 @@ public class ScheduleService {
                                         "해당 일정을 찾을 수 없습니다."
                                 )
                         );
-
+        exposureRecordRepository.deleteBySchedule(
+                schedule
+        );
         schedule.update(
                 request.flightNumber(),
                 request.departureAirport(),
@@ -124,26 +131,31 @@ public class ScheduleService {
                 "비행 일정이 수정되었어요."
         );
     }
+
     @Transactional
     public void applySolution(
             Long scheduleId,
             SolutionApplyRequest request
     ) {
 
-        Schedule schedule = scheduleRepository.findById(scheduleId)
-                .orElseThrow(() ->
-                        new IllegalArgumentException(
-                                "해당 일정을 찾을 수 없습니다."
-                        )
-                );
+        Schedule schedule =
+                scheduleRepository.findById(scheduleId)
+                        .orElseThrow(() ->
+                                new IllegalArgumentException(
+                                        "해당 일정을 찾을 수 없습니다."
+                                )
+                        );
 
-        Sunscreen sunscreen = sunscreenRepository
-                .findById(request.sunscreenId())
-                .orElseThrow(() ->
-                        new IllegalArgumentException(
-                                "해당 선크림을 찾을 수 없습니다."
+        Sunscreen sunscreen =
+                sunscreenRepository
+                        .findById(
+                                request.sunscreenId()
                         )
-                );
+                        .orElseThrow(() ->
+                                new IllegalArgumentException(
+                                        "해당 선크림을 찾을 수 없습니다."
+                                )
+                        );
 
         schedule.applySunscreen(
                 sunscreen,

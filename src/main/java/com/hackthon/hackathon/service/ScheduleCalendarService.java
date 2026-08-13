@@ -7,6 +7,7 @@ import com.hackthon.hackathon.entity.User;
 import com.hackthon.hackathon.repository.ScheduleRepository;
 import com.hackthon.hackathon.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -14,7 +15,7 @@ import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ScheduleCalendarService {
@@ -102,7 +103,12 @@ public class ScheduleCalendarService {
                 );
 
             } catch (Exception e) {
-
+                log.warn(
+                        "캘린더 날짜 조회 실패. date={}, scheduleId={}",
+                        date,
+                        schedule.getId(),
+                        e
+                );
                 days.add(
                         new CalendarResponse.DayInfo(
                                 date.toString(),
