@@ -10,4 +10,5 @@ public interface SunscreenRepository extends JpaRepository<Sunscreen, Long> {
     List<Sunscreen> findByNameContaining(String keyword);
     List<Sunscreen> findByUserId(Long userId);
     void deleteByUserId(Long userId);
+
 }
