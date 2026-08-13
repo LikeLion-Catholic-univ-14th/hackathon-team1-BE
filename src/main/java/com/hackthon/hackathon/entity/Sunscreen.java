@@ -32,10 +32,10 @@ public class Sunscreen {
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
-    @Column(nullable = false, length = 20)
+    @Column(nullable = false, length = 100)
     private String name;
 
-    @Column(nullable = false, length = 20)
+    @Column(nullable = false, length = 100)
     private String brand;
 
     @Enumerated(EnumType.STRING)

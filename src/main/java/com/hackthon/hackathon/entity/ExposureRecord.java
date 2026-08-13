@@ -3,9 +3,7 @@ package com.hackthon.hackathon.entity;
 import com.hackthon.hackathon.enums.LocationType;
 import com.hackthon.hackathon.enums.RiskLevel;
 import jakarta.persistence.*;
-import lombok.AccessLevel;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
+import lombok.*;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -13,7 +11,9 @@ import java.time.LocalDateTime;
 @Entity
 @Table(name = "exposure_record")
 @Getter
+@AllArgsConstructor(access = AccessLevel.PROTECTED)
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
+@Builder
 public class ExposureRecord {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -36,7 +36,7 @@ public class ExposureRecord {
     private LocationType locationType;
 
     @Column(name = "uv_index", nullable = false)
-    private Integer uvIndex;
+    private Double uvIndex;
 
     @Column(nullable = false)
     private LocalDate date;
@@ -63,6 +63,7 @@ public class ExposureRecord {
     @Column(name = "sunlight_minutes", nullable = false)
     private Integer sunlightMinutes;
 
+    @Builder.Default
     @Column(name = "is_outing", nullable = false)
     private boolean isOuting = true;
 
@@ -74,4 +75,39 @@ public class ExposureRecord {
 
     @Column(name = "weather_condition", nullable = false, length = 100)
     private String weatherCondition;
+
+    public void updateCalculation(
+            Double uvIndex,
+            Integer temperature,
+            Integer requiredSpf,
+            RiskLevel riskLevel,
+            LocalDateTime sunlightStart,
+            Double averageUv,
+            LocalDateTime sunlightEnd,
+            Integer sunlightMinutes,
+            boolean outing,
+            Double estimatedExposureScore,
+            Double koreaComparison,
+            String weatherCondition
+    ) {
+        this.uvIndex = uvIndex;
+        this.temperature = temperature;
+        this.requiredSpf = requiredSpf;
+        this.riskLevel = riskLevel;
+        this.sunlightStart = sunlightStart;
+        this.averageUv = averageUv;
+        this.sunlightEnd = sunlightEnd;
+        this.sunlightMinutes = sunlightMinutes;
+        this.isOuting = outing;
+        this.estimatedExposureScore = estimatedExposureScore;
+        this.koreaComparison = koreaComparison;
+        this.weatherCondition = weatherCondition;
+    }
+
+    public void updateOuting(
+            boolean outing
+    ) {
+        this.isOuting = outing;
+    }
+
 }
