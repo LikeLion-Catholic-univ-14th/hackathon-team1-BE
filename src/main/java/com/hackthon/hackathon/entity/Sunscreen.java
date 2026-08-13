@@ -51,4 +51,18 @@ public class Sunscreen {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private Pa pa;
+
+    //엽데이트용 메서드
+    public void updateSunscreen(String brand, String name,
+                                com.hackthon.hackathon.enums.SunscreenFilterType filterType,
+                                com.hackthon.hackathon.enums.SunscreenProductType productType,
+                                String spf,
+                                com.hackthon.hackathon.enums.Pa pa) {
+        this.brand = brand;
+        this.name = name;
+        this.filterType = filterType;
+        this.productType = productType;
+        this.spf = spf;
+        this.pa = pa;
+    }
 }

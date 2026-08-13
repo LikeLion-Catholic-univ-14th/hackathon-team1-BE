@@ -86,4 +86,27 @@ public class MypageService {
                 request.getProcedureHistory().isRecentOneMonth()
         );
     }
+
+    @Transactional
+    public void updateSunscreen(Long productId, com.hackthon.hackathon.dto.SunscreenUpdateRequest request) {
+        Sunscreen sunscreen = sunscreenRepository.findById(productId)
+                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 선크림입니다."));
+
+        sunscreen.updateSunscreen(
+                request.getBrand(),
+                request.getName(),
+                request.getFilterType() != null ? com.hackthon.hackathon.enums.SunscreenFilterType.valueOf(request.getFilterType()) : sunscreen.getFilterType(),
+                request.getProductType() != null ? com.hackthon.hackathon.enums.SunscreenProductType.valueOf(request.getProductType()) : sunscreen.getProductType(),
+                request.getSpf(),
+                request.getPa() != null ? com.hackthon.hackathon.enums.Pa.valueOf(request.getPa()) : sunscreen.getPa()
+        );
+    }
+
+    @Transactional
+    public void deleteSunscreen(Long productId) {
+        Sunscreen sunscreen = sunscreenRepository.findById(productId)
+                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 선크림입니다."));
+
+        sunscreenRepository.delete(sunscreen);
+    }
 }
