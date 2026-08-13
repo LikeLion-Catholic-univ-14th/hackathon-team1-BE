@@ -4,6 +4,7 @@ import com.hackthon.hackathon.dto.SolutionAiResponse;
 import com.hackthon.hackathon.dto.WeatherResponse;
 import com.hackthon.hackathon.dto.home.HomeUvResponse;
 import com.hackthon.hackathon.dto.today.TodayResponse;
+import com.hackthon.hackathon.entity.Schedule;
 import com.hackthon.hackathon.entity.User;
 import com.hackthon.hackathon.repository.UserRepository;
 import com.hackthon.hackathon.service.*;
@@ -19,6 +20,8 @@ import java.util.List;
 @RequiredArgsConstructor
 public class TodayController {
 
+    private static final int DEFAULT_FLIGHT_EXPOSURE_MINUTES = 30;
+
     private final UserRepository userRepository;
     private final WeatherService weatherService;
     private final SunlightWindowService sunlightWindowService;
@@ -26,6 +29,7 @@ public class TodayController {
     private final HomeUvService homeUvService;
     private final SolutionAiService solutionAiService;
     private final TodayService todayService;
+    private final ExposureRecordService exposureRecordService;
 
     @GetMapping("/today")
     public ResponseEntity<TodayResponse> getToday() {
@@ -37,20 +41,27 @@ public class TodayController {
                 .orElse(null);
 
         if (user == null) {
-            return ResponseEntity.ok(TodayResponse.guest());
+            return ResponseEntity.ok(
+                    TodayResponse.guest()
+            );
         }
 
-        // 2. DB 일정 조회
+        // 2. 현재 체류 스케줄 조회
         TodayService.TodayScheduleInfo scheduleInfo =
-                todayService.getTodayScheduleInfo(userId);
+                todayService.getTodayScheduleInfo(
+                        userId
+                );
 
-        String airportCode = scheduleInfo.airportCode();
+        String airportCode =
+                scheduleInfo.airportCode();
 
         // 3. 현재 체류지 날씨
         WeatherResponse weather =
-                weatherService.getWeather(airportCode);
+                weatherService.getWeather(
+                        airportCode
+                );
 
-        // 4. 외출 가능 시간
+        // 4. 외출 가능 시간 계산
         SunlightWindowService.AvailableWindow availableWindow =
                 sunlightWindowService.calculateAvailableWindow(
                                 scheduleInfo.arrivalTime(),
@@ -63,24 +74,39 @@ public class TodayController {
                                 )
                         );
 
-        // 5. 햇빛창 계산
+        // 5. 실제 일출/일몰과 겹치는 햇빛창 계산
         List<SunlightWindowService.SunlightWindow> windows =
                 sunlightWindowService.calculateSunlightWindows(
                         availableWindow,
                         weather
                 );
 
-        // 6. 서울 기준 노출점수
-        double seoulDailyAverageExposureScore = 8.0;
+        // 6. 서울 동일 노출시간 기준 비교값 계산
+        WeatherResponse seoulWeather =
+                weatherService.getSeoulWeather();
+
+        int sunlightMinutes =
+                windows.stream()
+                        .mapToInt(window ->
+                                (int) window.minutes()
+                        )
+                        .sum();
+
+        double seoulComparableExposureScore =
+                exposureCalculationService
+                        .calculateSeoulComparableExposureScore(
+                                seoulWeather,
+                                sunlightMinutes
+                        );
 
         ExposureCalculationService.ExposureResult exposureResult =
                 exposureCalculationService.calculateExposure(
                         windows,
                         weather,
-                        seoulDailyAverageExposureScore
+                        seoulComparableExposureScore
                 );
 
-        // 7. 홈 UV 데이터
+        // 7. 홈 UV 기본 데이터
         HomeUvResponse homeResponse =
                 homeUvService.createTestHomeUv(
                         userId,
@@ -88,8 +114,101 @@ public class TodayController {
                         exposureResult,
                         windows
                 );
+        // 8. 노출 기록 저장 또는 갱신
+        Schedule currentSchedule =
+                todayService.getCurrentSchedule(
+                        userId
+                );
 
-        // 8. AI 솔루션
+        exposureRecordService.saveOrUpdate(
+                currentSchedule,
+                airportCode,
+                currentSchedule.getArrivalTime()
+                        .toLocalDate(),
+                exposureResult,
+                homeResponse.weatherCondition()
+        );
+
+        // 공통 응답 데이터 생성
+        TodayResponse.UserInfo userInfo =
+                new TodayResponse.UserInfo(
+                        user.getName(),
+                        scheduleInfo.quickTurn()
+                                ? "퀵턴"
+                                : "레이오버"
+                );
+
+        TodayResponse.LocationInfo location =
+                new TodayResponse.LocationInfo(
+                        homeResponse.city(),
+                        homeResponse.country()
+                );
+
+        List<TodayResponse.UvPoint> uvGraph =
+                homeResponse.uvGraph()
+                        .stream()
+                        .map(point ->
+                                new TodayResponse.UvPoint(
+                                        point.time(),
+                                        point.uvValue()
+                                )
+                        )
+                        .toList();
+
+        TodayResponse.Weather todayWeather =
+                new TodayResponse.Weather(
+                        convertWeatherCondition(
+                                homeResponse.weatherCondition()
+                        ),
+                        homeResponse.temperature()
+                );
+
+        int flightExposureMinutes =
+                DEFAULT_FLIGHT_EXPOSURE_MINUTES;
+
+        double koreaComparison =
+                Math.round(
+                        homeResponse.koreaComparison()
+                                * 10.0
+                ) / 10.0;
+
+        int koreaEquivalentMinutes =
+                (int) Math.round(
+                        flightExposureMinutes
+                                * koreaComparison
+                );
+
+        TodayResponse.UvSummary uvSummary =
+                new TodayResponse.UvSummary(
+                        homeResponse.city(),
+                        homeResponse.uvIndex(),
+                        koreaComparison,
+                        flightExposureMinutes,
+                        koreaEquivalentMinutes,
+                        todayWeather,
+                        uvGraph
+                );
+
+        // 8. 실내 모드
+        if (!scheduleInfo.outing()) {
+
+            TodayResponse response =
+                    new TodayResponse(
+                            "INDOOR",
+                            userInfo,
+                            location,
+                            homeResponse.currentTime(),
+                            uvSummary,
+                            null,
+                            List.of()
+                    );
+
+            return ResponseEntity.ok(
+                    response
+            );
+        }
+
+        // 9. OUTING일 때만 AI 솔루션 생성
         SolutionAiResponse solution =
                 solutionAiService.generateSolution(
                         userId,
@@ -98,7 +217,7 @@ public class TodayController {
                         homeResponse.weatherCondition()
                 );
 
-        // 9. 선크림 목록
+        // 10. 선크림 목록
         List<TodayResponse.Product> products =
                 homeResponse.sunscreens()
                         .stream()
@@ -114,17 +233,23 @@ public class TodayController {
 
                                         Integer.parseInt(
                                                 item.displayedSpf()
-                                                        .replaceAll("[^0-9]", "")
+                                                        .replaceAll(
+                                                                "[^0-9]",
+                                                                ""
+                                                        )
                                         ),
 
                                         item.sunscreenId()
-                                                .equals(solution.sunscreenId())
+                                                .equals(
+                                                        solution.sunscreenId()
+                                                )
                                 )
                         )
                         .toList();
 
-        // 10. 태그
-        List<String> tags = new ArrayList<>();
+        // 11. 태그
+        List<String> tags =
+                new ArrayList<>();
 
         switch (homeResponse.weatherCondition()) {
             case "맑음" -> tags.add("맑은 날");
@@ -142,7 +267,7 @@ public class TodayController {
             tags.add("자외선 강함");
         }
 
-        // 11. 선크림 추천
+        // 12. 선크림 추천 영역
         TodayResponse.SunProtection sunProtection =
                 new TodayResponse.SunProtection(
                         tags,
@@ -150,7 +275,7 @@ public class TodayController {
                         solution.message()
                 );
 
-        // 12. AI 3단계 솔루션
+        // 13. AI 3단계 솔루션
         List<TodayResponse.Solution> todaySolutions =
                 solution.solutions()
                         .stream()
@@ -163,78 +288,10 @@ public class TodayController {
                         )
                         .toList();
 
-        // 13. 유저 정보
-        String position =
-                scheduleInfo.quickTurn()
-                        ? "퀵턴"
-                        : "레이오버";
-
-        TodayResponse.UserInfo userInfo =
-                new TodayResponse.UserInfo(
-                        user.getName(),
-                        position
-                );
-
-        // 14. 위치
-        TodayResponse.LocationInfo location =
-                new TodayResponse.LocationInfo(
-                        homeResponse.city(),
-                        homeResponse.country()
-                );
-
-        // 15. UV 그래프
-        List<TodayResponse.UvPoint> uvGraph =
-                homeResponse.uvGraph()
-                        .stream()
-                        .map(point ->
-                                new TodayResponse.UvPoint(
-                                        point.time(),
-                                        point.uvValue()
-                                )
-                        )
-                        .toList();
-
-        // 16. 날씨
-        TodayResponse.Weather todayWeather =
-                new TodayResponse.Weather(
-                        convertWeatherCondition(
-                                homeResponse.weatherCondition()
-                        ),
-                        homeResponse.temperature()
-                );
-
-        // 17. 디자인 기준 비행 노출시간
-        int flightExposureMinutes = 30;
-
-        // 서울 기준 환산 시간
-        int koreaEquivalentMinutes =
-                (int) Math.round(
-                        flightExposureMinutes
-                                * homeResponse.koreaComparison()
-                );
-
-        // 18. UV 요약
-        TodayResponse.UvSummary uvSummary =
-                new TodayResponse.UvSummary(
-                        homeResponse.city(),
-                        homeResponse.uvIndex(),
-                        homeResponse.koreaComparison(),
-                        flightExposureMinutes,
-                        koreaEquivalentMinutes,
-                        todayWeather,
-                        uvGraph
-                );
-
-        // 19. 외출 여부에 따른 mode
-        String mode =
-                scheduleInfo.outing()
-                        ? "OUTING"
-                        : "INDOOR";
-
-        // 20. 최종 응답
+        // 14. OUTING 최종 응답
         TodayResponse response =
                 new TodayResponse(
-                        mode,
+                        "OUTING",
                         userInfo,
                         location,
                         homeResponse.currentTime(),
@@ -243,10 +300,14 @@ public class TodayController {
                         todaySolutions
                 );
 
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(
+                response
+        );
     }
 
-    private String convertWeatherCondition(String condition) {
+    private String convertWeatherCondition(
+            String condition
+    ) {
 
         return switch (condition) {
             case "맑음" -> "CLEAR";

@@ -27,7 +27,6 @@ public class SunscreenSaveController {
         // 1. 유저 찾기
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("유저를 찾을 수 없습니다."));
-
         // 2. DTO 리스트를 엔티티 리스트로 변환
         List<Sunscreen> sunscreens = requestDto.getSunscreens().stream()
                 .map(info -> Sunscreen.builder()
@@ -42,6 +41,7 @@ public class SunscreenSaveController {
                 .collect(Collectors.toList());
 
         // 3. 한 번에 저장
+
         sunscreenRepository.saveAll(sunscreens);
         return ResponseEntity.ok("선크림 저장 성공!");
     }

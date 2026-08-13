@@ -36,7 +36,7 @@ public class ExposureRecord {
     private LocationType locationType;
 
     @Column(name = "uv_index", nullable = false)
-    private Integer uvIndex;
+    private Double uvIndex;
 
     @Column(nullable = false)
     private LocalDate date;
@@ -74,4 +74,39 @@ public class ExposureRecord {
 
     @Column(name = "weather_condition", nullable = false, length = 100)
     private String weatherCondition;
+
+    public void updateCalculation(
+            Double uvIndex,
+            Integer temperature,
+            Integer requiredSpf,
+            RiskLevel riskLevel,
+            LocalDateTime sunlightStart,
+            Double averageUv,
+            LocalDateTime sunlightEnd,
+            Integer sunlightMinutes,
+            boolean outing,
+            Double estimatedExposureScore,
+            Double koreaComparison,
+            String weatherCondition
+    ) {
+        this.uvIndex = uvIndex;
+        this.temperature = temperature;
+        this.requiredSpf = requiredSpf;
+        this.riskLevel = riskLevel;
+        this.sunlightStart = sunlightStart;
+        this.averageUv = averageUv;
+        this.sunlightEnd = sunlightEnd;
+        this.sunlightMinutes = sunlightMinutes;
+        this.isOuting = outing;
+        this.estimatedExposureScore = estimatedExposureScore;
+        this.koreaComparison = koreaComparison;
+        this.weatherCondition = weatherCondition;
+    }
+
+    public void updateOuting(
+            boolean outing
+    ) {
+        this.isOuting = outing;
+    }
+
 }

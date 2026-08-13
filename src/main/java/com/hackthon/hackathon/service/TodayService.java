@@ -71,4 +71,29 @@ public class TodayService {
             boolean outing
     ) {
     }
+    public Schedule getCurrentSchedule(
+            Long userId
+    ) {
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() ->
+                        new IllegalArgumentException(
+                                "해당 유저를 찾을 수 없습니다."
+                        )
+                );
+
+        LocalDateTime now =
+                LocalDateTime.now();
+
+        return scheduleRepository
+                .findFirstByUserAndArrivalTimeBeforeOrderByArrivalTimeDesc(
+                        user,
+                        now
+                )
+                .orElseThrow(() ->
+                        new IllegalStateException(
+                                "현재 체류 기준 일정이 없습니다."
+                        )
+                );
+    }
 }
