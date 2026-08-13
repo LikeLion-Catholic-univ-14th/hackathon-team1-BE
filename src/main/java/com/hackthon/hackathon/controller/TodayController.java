@@ -229,6 +229,7 @@ public class TodayController {
                                         switch (item.filterType()) {
                                             case PHYSICAL -> "무기자차";
                                             case ORGANIC -> "유기자차";
+                                            case MIXED -> "혼합자차";
                                         },
 
                                         Integer.parseInt(

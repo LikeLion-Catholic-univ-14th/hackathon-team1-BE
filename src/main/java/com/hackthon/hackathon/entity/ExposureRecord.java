@@ -63,6 +63,7 @@ public class ExposureRecord {
     @Column(name = "sunlight_minutes", nullable = false)
     private Integer sunlightMinutes;
 
+    @Builder.Default
     @Column(name = "is_outing", nullable = false)
     private boolean isOuting = true;
 
