@@ -1,14 +1,21 @@
 package com.hackthon.hackathon.service;
 
 import com.hackthon.hackathon.dto.MypageResponse;
+import com.hackthon.hackathon.dto.ProfileUpdateRequest;
 import com.hackthon.hackathon.entity.Sunscreen;
 import com.hackthon.hackathon.entity.User;
+import com.hackthon.hackathon.enums.BaseAirport;
+import com.hackthon.hackathon.enums.SkinConcern;
+import com.hackthon.hackathon.enums.SkinType;
 import com.hackthon.hackathon.repository.SunscreenRepository;
 import com.hackthon.hackathon.repository.UserRepository;
+import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -48,4 +55,34 @@ public class MypageService {
                 .build();
     }
 
+    @Transactional
+    public void updateMypageProfile(ProfileUpdateRequest request) {
+        User user = userRepository.findById(1L)
+                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 유저입니다."));
+
+        BaseAirport airport = request.getBaseAirport() != null ?
+                BaseAirport.valueOf(request.getBaseAirport()) : user.getBaseAirport();
+
+        Set<SkinType> skinTypes = new HashSet<>();
+        if (request.getSkinType() != null) {
+            skinTypes.add(SkinType.valueOf(request.getSkinType()));
+        }
+
+        Set<SkinConcern> concerns = new HashSet<>();
+        if (request.getSkinConcerns() != null) {
+            concerns = request.getSkinConcerns().stream()
+                    .map(SkinConcern::valueOf)
+                    .collect(Collectors.toSet());
+        }
+
+        user.setupProfile(
+                request.getName(),
+                airport,
+                skinTypes,
+                concerns,
+                request.getProcedureHistory().isHasHistory(),
+                request.getProcedureHistory().getDetail(),
+                request.getProcedureHistory().isRecentOneMonth()
+        );
+    }
 }
