@@ -6,11 +6,7 @@ import com.hackthon.hackathon.service.MypageService;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
@@ -36,5 +32,19 @@ public class MypageController {
     public ResponseEntity<List<MypageResponse.PouchItemDto>> getPouchList() {
         MypageResponse response = mypageService.getMypageProfile();
         return ResponseEntity.ok(response.getPouch());
+    }
+
+    @PutMapping("/pouch/{productId}")
+    public ResponseEntity<String> updateSunscreen(
+            @org.springframework.web.bind.annotation.PathVariable Long productId,
+            @org.springframework.web.bind.annotation.RequestBody com.hackthon.hackathon.dto.SunscreenUpdateRequest request) {
+        mypageService.updateSunscreen(productId, request);
+        return ResponseEntity.ok("선크림 수정 성공!");
+    }
+
+    @DeleteMapping("/pouch/{productId}")
+    public ResponseEntity<String> deleteSunscreen(@org.springframework.web.bind.annotation.PathVariable Long productId) {
+        mypageService.deleteSunscreen(productId);
+        return ResponseEntity.ok("선크림 삭제 성공!");
     }
 }
