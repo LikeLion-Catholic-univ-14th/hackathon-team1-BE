@@ -14,14 +14,14 @@ import java.util.HashSet;
 import java.util.Set;
 
 @Entity
-@Table(name="users")
+@Table(name = "users")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class User {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    @Column(name="user_id")
+    @Column(name = "user_id")
     private Long id;
 
     @Column(nullable = false, length = 20)
@@ -33,7 +33,7 @@ public class User {
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "skin_concerns", columnDefinition = "json")
-    private Set<SkinConcern> skinConcerns = new HashSet<>(); //나중에 JSON 변환 처리..
+    private Set<SkinConcern> skinConcerns = new HashSet<>();
 
     @Enumerated(EnumType.STRING)
     @Column(name = "base_airport", nullable = false)
@@ -48,9 +48,24 @@ public class User {
     @Column(name = "procedure_within_one_month")
     private Boolean procedureWithinOneMonth;
 
-    public void setupProfile(String name, BaseAirport baseAirport, Set<SkinType> skinTypes,
-                             Set<SkinConcern> skinConcerns, boolean hasProcedureHistory,
-                             String procedureDetails, Boolean procedureWithinOneMonth) {
+    /*
+     * 스케줄을 한 번이라도 최종 등록한 적이 있는지
+     *
+     * 일정이 이후 모두 삭제되더라도 true 유지
+     */
+    @Column(name = "has_schedule_history", nullable = false)
+    private boolean hasScheduleHistory = false;
+
+    public void setupProfile(
+            String name,
+            BaseAirport baseAirport,
+            Set<SkinType> skinTypes,
+            Set<SkinConcern> skinConcerns,
+            boolean hasProcedureHistory,
+            String procedureDetails,
+            Boolean procedureWithinOneMonth
+    ) {
+
         this.name = name;
         this.baseAirport = baseAirport;
         this.skinTypes = skinTypes;
@@ -58,5 +73,14 @@ public class User {
         this.hasProcedureHistory = hasProcedureHistory;
         this.procedureDetails = procedureDetails;
         this.procedureWithinOneMonth = procedureWithinOneMonth;
+    }
+
+    /*
+     * 최초 일정 등록 완료 처리
+     *
+     * 한번 true가 되면 다시 false로 변경하지 않음
+     */
+    public void markScheduleRegistered() {
+        this.hasScheduleHistory = true;
     }
 }

@@ -11,8 +11,12 @@ import com.hackthon.hackathon.service.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
-
+import com.hackthon.hackathon.dto.today.TodayOutingRequest;
+import com.hackthon.hackathon.dto.today.TodayOutingResponse;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -30,23 +34,33 @@ public class TodayController {
     private final SolutionAiService solutionAiService;
     private final TodayService todayService;
     private final ExposureRecordService exposureRecordService;
+    private final TodayOutingService todayOutingService;
 
     @GetMapping("/today")
     public ResponseEntity<TodayResponse> getToday() {
 
         Long userId = 1L;
 
-        // 1. 유저 없으면 GUEST
-        User user = userRepository.findById(userId)
-                .orElse(null);
+        // =========================
+        // 1. USER
+        // =========================
+
+        User user =
+                userRepository.findById(userId)
+                        .orElse(null);
 
         if (user == null) {
+
             return ResponseEntity.ok(
                     TodayResponse.guest()
             );
         }
 
-        // 2. 현재 체류 스케줄 조회
+
+        // =========================
+        // 2. 오늘 위치 / 일정
+        // =========================
+
         TodayService.TodayScheduleInfo scheduleInfo =
                 todayService.getTodayScheduleInfo(
                         userId
@@ -55,33 +69,78 @@ public class TodayController {
         String airportCode =
                 scheduleInfo.airportCode();
 
-        // 3. 현재 체류지 날씨
+
+        // =========================
+        // 3. 현재 위치 날씨
+        // =========================
+
         WeatherResponse weather =
                 weatherService.getWeather(
                         airportCode
                 );
 
-        // 4. 외출 가능 시간 계산
-        SunlightWindowService.AvailableWindow availableWindow =
-                sunlightWindowService.calculateAvailableWindow(
-                                scheduleInfo.arrivalTime(),
-                                scheduleInfo.nextDepartureTime(),
-                                scheduleInfo.quickTurn()
-                        )
-                        .orElseThrow(() ->
-                                new IllegalStateException(
-                                        "외출 가능 시간이 없습니다."
-                                )
-                        );
 
-        // 5. 실제 일출/일몰과 겹치는 햇빛창 계산
-        List<SunlightWindowService.SunlightWindow> windows =
-                sunlightWindowService.calculateSunlightWindows(
-                        availableWindow,
-                        weather
-                );
+        // =========================
+        // 4. 외출 가능 시간
+        // =========================
 
-        // 6. 서울 동일 노출시간 기준 비교값 계산
+        SunlightWindowService.AvailableWindow availableWindow;
+
+        if (scheduleInfo.baseDay()) {
+
+            /*
+             * 일정 없는 소속공항 대기일
+             *
+             * 하루 전체를 기준으로 잡고
+             * 아래에서 실제 일출~일몰과 교집합 계산
+             */
+            availableWindow =
+                    sunlightWindowService
+                            .calculateBaseDayAvailableWindow(
+                                    LocalDate.now()
+                            );
+
+        } else {
+
+            /*
+             * 기존 비행/레이오버 일정
+             */
+            availableWindow =
+                    sunlightWindowService
+                            .calculateAvailableWindow(
+                                    scheduleInfo.arrivalTime(),
+                                    scheduleInfo.nextDepartureTime(),
+                                    scheduleInfo.quickTurn()
+                            )
+                            .orElse(null);
+        }
+
+
+        // =========================
+        // 5. 햇빛창
+        // =========================
+
+        List<SunlightWindowService.SunlightWindow> windows;
+
+        if (availableWindow == null) {
+
+            windows = List.of();
+
+        } else {
+
+            windows =
+                    sunlightWindowService
+                            .calculateSunlightWindows(
+                                    availableWindow,
+                                    weather
+                            );
+        }
+
+
+        // =========================
+        // 6. 서울 비교
+        // =========================
+
         WeatherResponse seoulWeather =
                 weatherService.getSeoulWeather();
 
@@ -106,7 +165,11 @@ public class TodayController {
                         seoulComparableExposureScore
                 );
 
-        // 7. 홈 UV 기본 데이터
+
+        // =========================
+        // 7. 홈 UV 데이터
+        // =========================
+
         HomeUvResponse homeResponse =
                 homeUvService.createTestHomeUv(
                         userId,
@@ -114,35 +177,90 @@ public class TodayController {
                         exposureResult,
                         windows
                 );
-        // 8. 노출 기록 저장 또는 갱신
-        Schedule currentSchedule =
-                todayService.getCurrentSchedule(
-                        userId
-                );
 
-        exposureRecordService.saveOrUpdate(
-                currentSchedule,
-                airportCode,
-                currentSchedule.getArrivalTime()
-                        .toLocalDate(),
-                exposureResult,
-                homeResponse.weatherCondition()
-        );
 
-        // 공통 응답 데이터 생성
+        // =========================
+        // 8. ExposureRecord 저장
+        // =========================
+
+        if (scheduleInfo.baseDay()) {
+
+            /*
+             * 일정 없는 날
+             *
+             * schedule = null
+             * User + 날짜 기준으로 저장
+             */
+            exposureRecordService
+                    .saveOrUpdateBaseDay(
+                            user,
+                            airportCode,
+                            LocalDate.now(),
+                            scheduleInfo.outing(),
+                            exposureResult,
+                            homeResponse.weatherCondition()
+                    );
+
+        } else {
+
+            Schedule currentSchedule =
+                    scheduleInfo.schedule();
+
+            if (currentSchedule != null) {
+
+                exposureRecordService
+                        .saveOrUpdate(
+                                currentSchedule,
+                                airportCode,
+                                LocalDate.now(),
+                                exposureResult,
+                                homeResponse.weatherCondition()
+                        );
+            }
+        }
+
+
+        // =========================
+        // 9. 사용자 정보
+        // =========================
+
+        String position;
+
+        if (scheduleInfo.baseDay()) {
+
+            position = "대기";
+
+        } else if (scheduleInfo.quickTurn()) {
+
+            position = "퀵턴";
+
+        } else {
+
+            position = "레이오버";
+        }
+
         TodayResponse.UserInfo userInfo =
                 new TodayResponse.UserInfo(
                         user.getName(),
-                        scheduleInfo.quickTurn()
-                                ? "퀵턴"
-                                : "레이오버"
+                        position
                 );
+
+
+        // =========================
+        // 10. 위치
+        // =========================
 
         TodayResponse.LocationInfo location =
                 new TodayResponse.LocationInfo(
                         homeResponse.city(),
-                        homeResponse.country()
+                        homeResponse.country(),
+                        exposureResult.riskLevel()
                 );
+
+
+        // =========================
+        // 11. UV GRAPH
+        // =========================
 
         List<TodayResponse.UvPoint> uvGraph =
                 homeResponse.uvGraph()
@@ -155,6 +273,11 @@ public class TodayController {
                         )
                         .toList();
 
+
+        // =========================
+        // 12. 날씨
+        // =========================
+
         TodayResponse.Weather todayWeather =
                 new TodayResponse.Weather(
                         convertWeatherCondition(
@@ -163,8 +286,15 @@ public class TodayController {
                         homeResponse.temperature()
                 );
 
+
+        /*
+         * 일정 없는 날이면
+         * 비행 노출 시간은 0
+         */
         int flightExposureMinutes =
-                DEFAULT_FLIGHT_EXPOSURE_MINUTES;
+                scheduleInfo.baseDay()
+                        ? 0
+                        : DEFAULT_FLIGHT_EXPOSURE_MINUTES;
 
         double koreaComparison =
                 Math.round(
@@ -178,6 +308,7 @@ public class TodayController {
                                 * koreaComparison
                 );
 
+
         TodayResponse.UvSummary uvSummary =
                 new TodayResponse.UvSummary(
                         homeResponse.city(),
@@ -189,7 +320,11 @@ public class TodayController {
                         uvGraph
                 );
 
-        // 8. 실내 모드
+
+        // =========================
+        // 13. INDOOR
+        // =========================
+
         if (!scheduleInfo.outing()) {
 
             TodayResponse response =
@@ -208,7 +343,11 @@ public class TodayController {
             );
         }
 
-        // 9. OUTING일 때만 AI 솔루션 생성
+
+        // =========================
+        // 14. OUTING AI
+        // =========================
+
         SolutionAiResponse solution =
                 solutionAiService.generateSolution(
                         userId,
@@ -217,7 +356,11 @@ public class TodayController {
                         homeResponse.weatherCondition()
                 );
 
-        // 10. 선크림 목록
+
+        // =========================
+        // 15. PRODUCTS
+        // =========================
+
         List<TodayResponse.Product> products =
                 homeResponse.sunscreens()
                         .stream()
@@ -248,27 +391,50 @@ public class TodayController {
                         )
                         .toList();
 
-        // 11. 태그
+
+        // =========================
+        // 16. TAGS
+        // =========================
+
         List<String> tags =
                 new ArrayList<>();
 
         switch (homeResponse.weatherCondition()) {
-            case "맑음" -> tags.add("맑은 날");
-            case "비" -> tags.add("비오는 날");
-            case "눈" -> tags.add("눈오는 날");
-            case "흐림" -> tags.add("흐린 날");
-            case "안개" -> tags.add("안개 낀 날");
+
+            case "맑음" ->
+                    tags.add("맑은 날");
+
+            case "비" ->
+                    tags.add("비오는 날");
+
+            case "눈" ->
+                    tags.add("눈오는 날");
+
+            case "흐림" ->
+                    tags.add("흐린 날");
+
+            case "안개" ->
+                    tags.add("안개 낀 날");
         }
 
         if (homeResponse.uvIndex() < 3) {
+
             tags.add("자외선 약함");
+
         } else if (homeResponse.uvIndex() < 6) {
+
             tags.add("자외선 보통");
+
         } else {
+
             tags.add("자외선 강함");
         }
 
-        // 12. 선크림 추천 영역
+
+        // =========================
+        // 17. 선크림 추천
+        // =========================
+
         TodayResponse.SunProtection sunProtection =
                 new TodayResponse.SunProtection(
                         tags,
@@ -276,7 +442,11 @@ public class TodayController {
                         solution.message()
                 );
 
-        // 13. AI 3단계 솔루션
+
+        // =========================
+        // 18. AI SOLUTIONS
+        // =========================
+
         List<TodayResponse.Solution> todaySolutions =
                 solution.solutions()
                         .stream()
@@ -289,7 +459,11 @@ public class TodayController {
                         )
                         .toList();
 
-        // 14. OUTING 최종 응답
+
+        // =========================
+        // 19. RESPONSE
+        // =========================
+
         TodayResponse response =
                 new TodayResponse(
                         "OUTING",
@@ -306,17 +480,34 @@ public class TodayController {
         );
     }
 
+    @PatchMapping("/today/outing")
+    public ResponseEntity<TodayOutingResponse> updateTodayOuting(
+            @RequestBody TodayOutingRequest request
+    ) {
+
+        Long userId = 1L;
+
+        return ResponseEntity.ok(
+                todayOutingService.updateOuting(
+                        userId,
+                        request.outing()
+                )
+        );
+    }
+
     private String convertWeatherCondition(
             String condition
     ) {
 
         return switch (condition) {
+
             case "맑음" -> "CLEAR";
             case "흐림" -> "CLOUDY";
             case "비" -> "RAIN";
             case "눈" -> "SNOW";
             case "안개" -> "FOG";
             case "뇌우" -> "THUNDERSTORM";
+
             default -> "UNKNOWN";
         };
     }

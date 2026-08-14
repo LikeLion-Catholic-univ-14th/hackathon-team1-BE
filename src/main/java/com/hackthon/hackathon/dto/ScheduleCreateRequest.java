@@ -12,7 +12,8 @@ public record ScheduleCreateRequest(
             String departureAirport,
             String arrivalAirport,
             LocalDateTime departureTime,
-            LocalDateTime arrivalTime
+            LocalDateTime arrivalTime,
+            boolean isQuickTurn
     ) {
     }
 }

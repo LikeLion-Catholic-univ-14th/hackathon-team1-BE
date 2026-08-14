@@ -25,17 +25,11 @@ public class WeatherService {
         return restClient.get()
                 .uri(uriBuilder -> uriBuilder
                         .path("/forecast")
-                        .queryParam(
-                                "latitude",
-                                airport.latitude()
-                        )
-                        .queryParam(
-                                "longitude",
-                                airport.longitude()
-                        )
+                        .queryParam("latitude", airport.latitude())
+                        .queryParam("longitude", airport.longitude())
                         .queryParam(
                                 "hourly",
-                                "uv_index,temperature_2m,weather_code"
+                                "temperature_2m,weather_code,uv_index"
                         )
                         .queryParam(
                                 "daily",
@@ -45,8 +39,15 @@ public class WeatherService {
                                 "timezone",
                                 airport.timezone()
                         )
-                        .build()
-                )
+                        .queryParam(
+                                "past_days",
+                                16
+                        )
+                        .queryParam(
+                                "forecast_days",
+                                16
+                        )
+                        .build())
                 .retrieve()
                 .body(WeatherResponse.class);
     }

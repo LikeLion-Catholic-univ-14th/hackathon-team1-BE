@@ -4,6 +4,7 @@ import java.util.List;
 
 public record CalendarResponse(
         String month,
+        boolean hasScheduleHistory,
         List<DayInfo> days
 ) {
 

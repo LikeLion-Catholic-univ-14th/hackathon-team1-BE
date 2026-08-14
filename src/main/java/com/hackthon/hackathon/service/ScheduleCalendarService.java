@@ -2,8 +2,12 @@ package com.hackthon.hackathon.service;
 
 import com.hackthon.hackathon.dto.CalendarResponse;
 import com.hackthon.hackathon.dto.ScheduleDailyResponse;
+import com.hackthon.hackathon.entity.DailyOuting;
 import com.hackthon.hackathon.entity.Schedule;
 import com.hackthon.hackathon.entity.User;
+import com.hackthon.hackathon.enums.BaseAirport;
+import com.hackthon.hackathon.enums.RiskLevel;
+import com.hackthon.hackathon.repository.DailyOutingRepository;
 import com.hackthon.hackathon.repository.ScheduleRepository;
 import com.hackthon.hackathon.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -15,6 +19,7 @@ import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -23,18 +28,21 @@ public class ScheduleCalendarService {
     private final UserRepository userRepository;
     private final ScheduleRepository scheduleRepository;
     private final ScheduleDailyService scheduleDailyService;
+    private final DailyOutingRepository dailyOutingRepository;
+
 
     public CalendarResponse getCalendar(
             Long userId,
             String month
     ) {
 
-        User user = userRepository.findById(userId)
-                .orElseThrow(() ->
-                        new IllegalArgumentException(
-                                "해당 유저를 찾을 수 없습니다."
-                        )
-                );
+        User user =
+                userRepository.findById(userId)
+                        .orElseThrow(() ->
+                                new IllegalArgumentException(
+                                        "해당 유저를 찾을 수 없습니다."
+                                )
+                        );
 
         YearMonth yearMonth =
                 YearMonth.parse(month);
@@ -45,8 +53,14 @@ public class ScheduleCalendarService {
                                 user
                         );
 
+        String baseAirportCode =
+                convertBaseAirportToAirportCode(
+                        user.getBaseAirport()
+                );
+
         List<CalendarResponse.DayInfo> days =
                 new ArrayList<>();
+
 
         for (int day = 1;
              day <= yearMonth.lengthOfMonth();
@@ -55,25 +69,91 @@ public class ScheduleCalendarService {
             LocalDate date =
                     yearMonth.atDay(day);
 
+
             Schedule schedule =
                     findScheduleForDate(
                             schedules,
-                            date
+                            date,
+                            baseAirportCode
                     );
 
-            // 실제 일정 / 레이오버가 없는 날
+
+            // ==========================================
+            // 일정 없는 소속공항 대기일
+            // ==========================================
+
             if (schedule == null) {
+
+                boolean isOuting =
+                        dailyOutingRepository
+                                .findByUserAndDate(
+                                        user,
+                                        date
+                                )
+                                .map(DailyOuting::isOuting)
+                                .orElse(false);
+
+
+                String status;
+
+                if (!isOuting) {
+
+                    status = "INDOOR";
+
+                } else {
+
+                    try {
+
+                        ScheduleDailyResponse daily =
+                                scheduleDailyService
+                                        .getDaily(
+                                                userId,
+                                                date
+                                        );
+
+
+                        if (daily.departureInfo() != null
+                                && daily.departureInfo().riskLevel() != null) {
+
+                            status =
+                                    daily.departureInfo()
+                                            .riskLevel()
+                                            .name();
+
+                        } else {
+
+                            // 아직 UV 데이터가 없는 날짜
+                            status = null;
+                        }
+
+                    } catch (Exception e) {
+
+                        log.warn(
+                                "대기일 UV 조회 실패. date={}",
+                                date,
+                                e
+                        );
+
+                        status = null;
+                    }
+                }
+
 
                 days.add(
                         new CalendarResponse.DayInfo(
                                 date.toString(),
                                 null,
-                                "INDOOR"
+                                status
                         )
                 );
 
                 continue;
             }
+
+
+            // ==========================================
+            // 실제 비행 / 해외 레이오버
+            // ==========================================
 
             try {
 
@@ -86,13 +166,42 @@ public class ScheduleCalendarService {
 
                 String status;
 
+
                 if (!schedule.isOuting()) {
+
                     status = "INDOOR";
+
                 } else {
+
+                    RiskLevel riskLevel = null;
+
+
+                    if (daily.arrivalInfo() != null
+                            && daily.arrivalInfo().riskLevel() != null) {
+
+                        riskLevel =
+                                daily.arrivalInfo()
+                                        .riskLevel();
+
+                    } else if (daily.departureInfo() != null
+                            && daily.departureInfo().riskLevel() != null) {
+
+                        riskLevel =
+                                daily.departureInfo()
+                                        .riskLevel();
+                    }
+
+
+                    /*
+                     * UV 데이터 없는 미래 날짜 등은
+                     * SAFE로 오판하지 않고 null
+                     */
                     status =
-                            daily.riskLevel()
-                                    .name();
+                            riskLevel != null
+                                    ? riskLevel.name()
+                                    : null;
                 }
+
 
                 days.add(
                         new CalendarResponse.DayInfo(
@@ -102,41 +211,53 @@ public class ScheduleCalendarService {
                         )
                 );
 
+
             } catch (Exception e) {
+
                 log.warn(
                         "캘린더 날짜 조회 실패. date={}, scheduleId={}",
                         date,
                         schedule.getId(),
                         e
                 );
+
+
                 days.add(
                         new CalendarResponse.DayInfo(
                                 date.toString(),
                                 schedule.getId(),
-                                "INDOOR"
+                                null
                         )
                 );
             }
         }
 
+
         return new CalendarResponse(
                 month,
+
+                // 최초 일정 등록 여부
+                user.isHasScheduleHistory(),
+
                 days
         );
     }
 
+
+    // ==========================================
+    // 날짜 기준 일정 / 해외 레이오버 판정
+    // ==========================================
+
     private Schedule findScheduleForDate(
             List<Schedule> schedules,
-            LocalDate date
+            LocalDate date,
+            String baseAirportCode
     ) {
 
         /*
-         * 1순위:
-         * 실제 비행이 해당 날짜에 걸쳐 있는 경우.
+         * 1. 실제 비행일
          *
-         * 예:
-         * 8/15 출발 → 8/16 도착이면
-         * 8/15, 8/16 모두 해당 비행 일정.
+         * departureDate <= date <= arrivalDate
          */
         Schedule flightSchedule =
                 schedules.stream()
@@ -160,13 +281,19 @@ public class ScheduleCalendarService {
                         )
                         .orElse(null);
 
+
         if (flightSchedule != null) {
             return flightSchedule;
         }
 
+
         /*
-         * 2순위:
-         * 도착 후 다음 출발 전까지의 레이오버.
+         * 2. 해외 레이오버
+         *
+         * 도착 후 같은 공항에서 출발하는
+         * 다음 비행 직전까지.
+         *
+         * 단, 소속공항 도착 후는 레이오버가 아니라 대기일.
          */
         for (Schedule current : schedules) {
 
@@ -174,9 +301,27 @@ public class ScheduleCalendarService {
                     current.getArrivalTime()
                             .toLocalDate();
 
+
             if (date.isBefore(arrivalDate)) {
                 continue;
             }
+
+
+            /*
+             * 귀국 후 소속공항 대기일
+             *
+             * 예:
+             * SYD → ICN 8/15 도착
+             * 8/16 일정 없음
+             *
+             * → 8/16은 이전 schedule에 포함하지 않음.
+             */
+            if (current.getArrivalAirport()
+                    .equals(baseAirportCode)) {
+
+                continue;
+            }
+
 
             Schedule nextDeparture =
                     schedules.stream()
@@ -199,25 +344,18 @@ public class ScheduleCalendarService {
                             )
                             .orElse(null);
 
-            /*
-             * 다음 출발 일정이 없다면
-             * 무한정 체류 중이라고 판단하지 않음.
-             */
+
             if (nextDeparture == null) {
                 continue;
             }
 
+
             LocalDate nextDepartureDate =
-                    nextDeparture.getDepartureTime()
+                    nextDeparture
+                            .getDepartureTime()
                             .toLocalDate();
 
-            /*
-             * 도착일부터
-             * 다음 출발일 직전까지 레이오버.
-             *
-             * 다음 출발 당일은 위의 "실제 비행"
-             * 판정에서 처리함.
-             */
+
             if (!date.isBefore(arrivalDate)
                     && date.isBefore(nextDepartureDate)) {
 
@@ -225,6 +363,33 @@ public class ScheduleCalendarService {
             }
         }
 
+
+        // 실제 비행도 해외 레이오버도 없음
         return null;
+    }
+
+
+    // ==========================================
+    // 소속공항 → IATA
+    // ==========================================
+
+    private String convertBaseAirportToAirportCode(
+            BaseAirport baseAirport
+    ) {
+
+        if (baseAirport == null) {
+
+            throw new IllegalStateException(
+                    "사용자의 소속 공항이 등록되어 있지 않습니다."
+            );
+        }
+
+
+        return switch (baseAirport) {
+
+            case INCHEON -> "ICN";
+
+            case GIMPO -> "GMP";
+        };
     }
 }

@@ -25,7 +25,7 @@ public class ExposureRecord {
     private User user;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "schedule_id", nullable = false)
+    @JoinColumn(name = "schedule_id")
     private Schedule schedule;
 
     @Column(name = "airport_code", nullable = false, length = 10)
@@ -77,6 +77,7 @@ public class ExposureRecord {
     private String weatherCondition;
 
     public void updateCalculation(
+            String airportCode,
             Double uvIndex,
             Integer temperature,
             Integer requiredSpf,
@@ -90,6 +91,7 @@ public class ExposureRecord {
             Double koreaComparison,
             String weatherCondition
     ) {
+        this.airportCode=airportCode;
         this.uvIndex = uvIndex;
         this.temperature = temperature;
         this.requiredSpf = requiredSpf;

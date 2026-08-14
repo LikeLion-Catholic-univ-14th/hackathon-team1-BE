@@ -18,8 +18,6 @@ import java.util.Map;
 public class ScheduleAiService {
 
     private final RestClient restClient;
-
-    // 다시 직접 생성
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public ScheduleAiService(
@@ -39,7 +37,18 @@ public class ScheduleAiService {
             MultipartFile image
     ) {
 
+        String fileName =
+                image.getOriginalFilename();
+
         try {
+
+            if (image.isEmpty()) {
+
+                return ScheduleExtractResponse.failed(
+                        fileName,
+                        "업로드된 이미지가 없습니다."
+                );
+            }
 
             String base64Image =
                     Base64.getEncoder()
@@ -98,19 +107,40 @@ public class ScheduleAiService {
                     schedules =
                     parseResponse(response);
 
-            return new ScheduleExtractResponse(
-                    image.getOriginalFilename(),
+            /*
+             * AI가 응답은 했지만
+             * 일정이 하나도 추출되지 않은 경우
+             */
+            if (schedules == null
+                    || schedules.isEmpty()) {
+
+                return ScheduleExtractResponse.failed(
+                        fileName,
+                        "일정을 인식하지 못했습니다."
+                );
+            }
+
+            return ScheduleExtractResponse.success(
+                    fileName,
                     schedules
             );
 
         } catch (IOException e) {
 
-            throw new RuntimeException(
-                    "이미지 처리 중 오류가 발생했습니다.",
-                    e
+            return ScheduleExtractResponse.failed(
+                    fileName,
+                    "이미지 처리 중 오류가 발생했습니다."
+            );
+
+        } catch (Exception e) {
+
+            return ScheduleExtractResponse.failed(
+                    fileName,
+                    "일정을 인식하지 못했습니다."
             );
         }
     }
+
 
     private String createPrompt() {
 
@@ -145,6 +175,7 @@ public class ScheduleAiService {
                 """;
     }
 
+
     private List<ScheduleExtractResponse.ExtractedSchedule>
     parseResponse(
             String response
@@ -155,22 +186,60 @@ public class ScheduleAiService {
             JsonNode root =
                     objectMapper.readTree(response);
 
+            JsonNode output =
+                    root.path("output");
+
+            if (!output.isArray()
+                    || output.isEmpty()) {
+
+                return List.of();
+            }
+
+            JsonNode content =
+                    output.get(0)
+                            .path("content");
+
+            if (!content.isArray()
+                    || content.isEmpty()) {
+
+                return List.of();
+            }
+
             String text =
-                    root
-                            .path("output")
-                            .get(0)
-                            .path("content")
-                            .get(0)
+                    content.get(0)
                             .path("text")
                             .asText();
 
-            text = text
-                    .replace("```json", "")
-                    .replace("```", "")
-                    .trim();
+            if (text == null
+                    || text.isBlank()) {
+
+                return List.of();
+            }
+
+            text =
+                    text.replace(
+                                    "```json",
+                                    ""
+                            )
+                            .replace(
+                                    "```",
+                                    ""
+                            )
+                            .trim();
 
             JsonNode result =
-                    objectMapper.readTree(text);
+                    objectMapper.readTree(
+                            text
+                    );
+
+            JsonNode schedulesNode =
+                    result.path(
+                            "schedules"
+                    );
+
+            if (!schedulesNode.isArray()) {
+                return List.of();
+            }
 
             return objectMapper
                     .readerForListOf(
@@ -178,15 +247,12 @@ public class ScheduleAiService {
                                     .ExtractedSchedule.class
                     )
                     .readValue(
-                            result.path("schedules")
+                            schedulesNode
                     );
 
         } catch (Exception e) {
 
-            throw new RuntimeException(
-                    "AI 일정 응답 파싱에 실패했습니다.",
-                    e
-            );
+            return List.of();
         }
     }
 }
