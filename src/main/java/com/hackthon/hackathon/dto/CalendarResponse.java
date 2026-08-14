@@ -10,7 +10,7 @@ public record CalendarResponse(
     public record DayInfo(
             String date,
             Long scheduleId,
-            String status
+            String staus
     ) {
     }
 }

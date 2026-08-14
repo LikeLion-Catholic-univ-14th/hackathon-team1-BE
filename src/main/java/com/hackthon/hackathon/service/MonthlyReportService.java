@@ -151,6 +151,7 @@ public class MonthlyReportService {
         Map<String, List<ExposureRecord>> grouped =
                 records.stream()
                         .filter(ExposureRecord::isOuting)
+                        .filter(record -> record.getSchedule() != null)
                         .collect(
                                 Collectors.groupingBy(
                                         ExposureRecord::getAirportCode
@@ -160,6 +161,7 @@ public class MonthlyReportService {
         double totalScore =
                 records.stream()
                         .filter(ExposureRecord::isOuting)
+                        .filter(record -> record.getSchedule() != null)
                         .map(ExposureRecord::getEstimatedExposureScore)
                         .filter(Objects::nonNull)
                         .mapToDouble(Double::doubleValue)
@@ -195,9 +197,9 @@ public class MonthlyReportService {
 
             long count =
                     routeRecords.stream()
-                            .map(record ->
-                                    record.getSchedule().getId()
-                            )
+                            .map(ExposureRecord::getSchedule)
+                            .filter(Objects::nonNull)
+                            .map(Schedule::getId)
                             .distinct()
                             .count();
 
@@ -600,10 +602,9 @@ public class MonthlyReportService {
 
         long currentScheduleCount =
                 currentRecords.stream()
-                        .map(record ->
-                                record.getSchedule()
-                                        .getId()
-                        )
+                        .map(ExposureRecord::getSchedule)
+                        .filter(Objects::nonNull)
+                        .map(Schedule::getId)
                         .distinct()
                         .count();
 

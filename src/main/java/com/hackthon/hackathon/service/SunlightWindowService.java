@@ -1,54 +1,52 @@
 package com.hackthon.hackathon.service;
+
 import com.hackthon.hackathon.dto.WeatherResponse;
-import com.hackthon.hackathon.entity.Schedule;
 import com.hackthon.hackathon.repository.ScheduleRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.Optional;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
 public class SunlightWindowService {
+
     private final ScheduleRepository scheduleRepository;
 
-    /*public Optional<AvailableWindow> calculateAvailableWindow(
-            Schedule schedule
+    /**
+     * 비행/레이오버 일정이 있는 날
+     */
+    public Optional<AvailableWindow> calculateAvailableWindow(
+            LocalDateTime arrivalTime,
+            LocalDateTime nextDepartureTime,
+            boolean quickTurn
     ) {
 
-        // 퀵턴이면 체류 외출시간 계산하지 않음
-        if (schedule.isQuickTurn()) {
+        if (quickTurn) {
             return Optional.empty();
         }
 
-        Optional<Schedule> nextSchedule =
-                scheduleRepository
-                        .findFirstByUserAndDepartureAirportAndDepartureTimeAfterOrderByDepartureTimeAsc(
-                                schedule.getUser(),
-                                schedule.getArrivalAirport(),
-                                schedule.getArrivalTime()
-                        );
-
-        // 다음 출발편이 없으면 계산 불가
-        if (nextSchedule.isEmpty()) {
+        if (arrivalTime == null || nextDepartureTime == null) {
             return Optional.empty();
         }
 
+        // 호텔 도착까지 2시간
         LocalDateTime hotelArrival =
-                schedule.getArrivalTime().plusHours(2);
+                arrivalTime.plusHours(2);
 
+        // 수면 8시간
         LocalDateTime expectedWakeUp =
                 hotelArrival.plusHours(8);
 
+        // 다음 비행 3시간 전부터 준비
         LocalDateTime preparationStart =
-                nextSchedule.get()
-                        .getDepartureTime()
-                        .minusHours(3);
+                nextDepartureTime.minusHours(3);
 
-        // 기상 예상보다 준비 시작이 빠르면 외출 가능시간 없음
         if (!expectedWakeUp.isBefore(preparationStart)) {
             return Optional.empty();
         }
@@ -59,39 +57,22 @@ public class SunlightWindowService {
                         preparationStart
                 )
         );
-    }*/
+    }
 
-    public Optional<AvailableWindow> calculateAvailableWindow(
-            LocalDateTime arrivalTime,
-            LocalDateTime nextDepartureTime,
-            boolean quickTurn
+    /**
+     * 비행 일정 없는 소속공항 대기일
+     *
+     * 일정상 제한이 없으므로 하루 전체를 AvailableWindow로 만들고,
+     * 이후 calculateSunlightWindows()에서
+     * 실제 일출~일몰과 교집합을 구한다.
+     */
+    public AvailableWindow calculateBaseDayAvailableWindow(
+            LocalDate date
     ) {
 
-        // 퀵턴이면 외출 가능 구간 없음
-        if (quickTurn) {
-            return Optional.empty();
-        }
-
-        // 기획 계산식
-        LocalDateTime hotelArrival =
-                arrivalTime.plusHours(2);
-
-        LocalDateTime expectedWakeUp =
-                hotelArrival.plusHours(8);
-
-        LocalDateTime preparationStart =
-                nextDepartureTime.minusHours(3);
-
-        // 자고 일어났더니 이미 다음 비행 준비시간이면 외출 불가능
-        if (!expectedWakeUp.isBefore(preparationStart)) {
-            return Optional.empty();
-        }
-
-        return Optional.of(
-                new AvailableWindow(
-                        expectedWakeUp,
-                        preparationStart
-                )
+        return new AvailableWindow(
+                date.atStartOfDay(),
+                date.atTime(LocalTime.MAX)
         );
     }
 
@@ -106,6 +87,7 @@ public class SunlightWindowService {
             LocalDateTime sunrise,
             LocalDateTime sunset
     ) {
+
         LocalDateTime start =
                 availableWindow.start().isAfter(sunrise)
                         ? availableWindow.start()
@@ -120,9 +102,10 @@ public class SunlightWindowService {
             return Optional.empty();
         }
 
-        long minutes = java.time.Duration
-                .between(start, end)
-                .toMinutes();
+        long minutes =
+                java.time.Duration
+                        .between(start, end)
+                        .toMinutes();
 
         return Optional.of(
                 new SunlightWindow(
@@ -139,23 +122,46 @@ public class SunlightWindowService {
             long minutes
     ) {
     }
+
     public List<SunlightWindow> calculateSunlightWindows(
             AvailableWindow availableWindow,
             WeatherResponse weather
     ) {
 
-        List<SunlightWindow> windows = new ArrayList<>();
+        List<SunlightWindow> windows =
+                new ArrayList<>();
 
-        List<String> sunrises = weather.getDaily().getSunrise();
-        List<String> sunsets = weather.getDaily().getSunset();
+        if (weather == null
+                || weather.getDaily() == null
+                || weather.getDaily().getSunrise() == null
+                || weather.getDaily().getSunset() == null) {
 
-        for (int i = 0; i < sunrises.size(); i++) {
+            return windows;
+        }
+
+        List<String> sunrises =
+                weather.getDaily().getSunrise();
+
+        List<String> sunsets =
+                weather.getDaily().getSunset();
+
+        int size =
+                Math.min(
+                        sunrises.size(),
+                        sunsets.size()
+                );
+
+        for (int i = 0; i < size; i++) {
 
             LocalDateTime sunrise =
-                    LocalDateTime.parse(sunrises.get(i));
+                    LocalDateTime.parse(
+                            sunrises.get(i)
+                    );
 
             LocalDateTime sunset =
-                    LocalDateTime.parse(sunsets.get(i));
+                    LocalDateTime.parse(
+                            sunsets.get(i)
+                    );
 
             Optional<SunlightWindow> window =
                     calculateSunlightWindow(
@@ -164,16 +170,22 @@ public class SunlightWindowService {
                             sunset
                     );
 
-            window.ifPresent(windows::add);
+            window.ifPresent(
+                    windows::add
+            );
         }
 
         return windows;
     }
+
     public long calculateTotalSunlightMinutes(
             List<SunlightWindow> windows
     ) {
+
         return windows.stream()
-                .mapToLong(SunlightWindow::minutes)
+                .mapToLong(
+                        SunlightWindow::minutes
+                )
                 .sum();
     }
 }

@@ -8,11 +8,18 @@ public record ScheduleDailyResponse(
         Long scheduleId,
         String date,
         String route,
-        RiskLevel riskLevel,
         String flightStatus,
         boolean isOuting,
-        UvDetail uvDetail
+        LocationInfo departureInfo,
+        LocationInfo arrivalInfo
 ) {
+
+    public record LocationInfo(
+            String airportCode,
+            RiskLevel riskLevel,
+            UvDetail uvDetail
+    ) {
+    }
 
     public record UvDetail(
             List<UvPoint> graph,

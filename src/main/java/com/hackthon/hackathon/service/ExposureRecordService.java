@@ -2,6 +2,7 @@ package com.hackthon.hackathon.service;
 
 import com.hackthon.hackathon.entity.ExposureRecord;
 import com.hackthon.hackathon.entity.Schedule;
+import com.hackthon.hackathon.entity.User;
 import com.hackthon.hackathon.enums.LocationType;
 import com.hackthon.hackathon.repository.ExposureRecordRepository;
 import lombok.RequiredArgsConstructor;
@@ -16,6 +17,9 @@ public class ExposureRecordService {
 
     private final ExposureRecordRepository exposureRecordRepository;
 
+    /**
+     * 비행/레이오버 일정이 있는 날
+     */
     @Transactional
     public void saveOrUpdate(
             Schedule schedule,
@@ -25,11 +29,6 @@ public class ExposureRecordService {
             String weatherCondition
     ) {
 
-        /*
-         * 햇빛창 자체가 없는 경우에는
-         * ExposureRecord의 sunlightStart/end가 NOT NULL이라
-         * 저장하지 않는다.
-         */
         if (result.sunlightStart() == null
                 || result.sunlightEnd() == null) {
             return;
@@ -52,34 +51,16 @@ public class ExposureRecordService {
                             .schedule(schedule)
                             .airportCode(airportCode)
                             .locationType(LocationType.ARRIVAL)
-                            .uvIndex(
-                                            result.maxUv()
-                            )
+                            .uvIndex(result.maxUv())
                             .date(date)
-                            .temperature(
-                                    result.temperature()
-                            )
-                            .requiredSpf(
-                                    result.requiredSpf()
-                            )
-                            .riskLevel(
-                                    result.riskLevel()
-                            )
-                            .sunlightStart(
-                                    result.sunlightStart()
-                            )
-                            .averageUv(
-                                    result.averageUv()
-                            )
-                            .sunlightEnd(
-                                    result.sunlightEnd()
-                            )
-                            .sunlightMinutes(
-                                    result.sunlightMinutes()
-                            )
-                            .isOuting(
-                                    schedule.isOuting()
-                            )
+                            .temperature(result.temperature())
+                            .requiredSpf(result.requiredSpf())
+                            .riskLevel(result.riskLevel())
+                            .sunlightStart(result.sunlightStart())
+                            .averageUv(result.averageUv())
+                            .sunlightEnd(result.sunlightEnd())
+                            .sunlightMinutes(result.sunlightMinutes())
+                            .isOuting(schedule.isOuting())
                             .estimatedExposureScore(
                                     result.estimatedExposureScore()
                             )
@@ -91,15 +72,13 @@ public class ExposureRecordService {
                             )
                             .build();
 
-            exposureRecordRepository.save(
-                    record
-            );
+            exposureRecordRepository.save(record);
 
             return;
         }
 
-        // 이미 있으면 중복 INSERT하지 않고 최신 계산값으로 갱신
         record.updateCalculation(
+                airportCode,
                 result.maxUv(),
                 result.temperature(),
                 result.requiredSpf(),
@@ -115,6 +94,93 @@ public class ExposureRecordService {
         );
     }
 
+    /**
+     * 비행 일정이 없는 소속공항 대기일
+     *
+     * schedule = null
+     * user + date 기준으로 기록
+     */
+    @Transactional
+    public void saveOrUpdateBaseDay(
+            User user,
+            String airportCode,
+            LocalDate date,
+            boolean outing,
+            ExposureCalculationService.ExposureResult result,
+            String weatherCondition
+    ) {
+
+        if (result.sunlightStart() == null
+                || result.sunlightEnd() == null) {
+            return;
+        }
+
+        ExposureRecord record =
+                exposureRecordRepository
+                        .findByUserAndDateAndLocationTypeAndScheduleIsNull(
+                                user,
+                                date,
+                                LocationType.ARRIVAL
+                        )
+                        .orElse(null);
+
+        if (record == null) {
+
+            record =
+                    ExposureRecord.builder()
+                            .user(user)
+
+                            // 일정 없는 날이므로 null
+                            .schedule(null)
+
+                            .airportCode(airportCode)
+                            .locationType(LocationType.ARRIVAL)
+                            .uvIndex(result.maxUv())
+                            .date(date)
+                            .temperature(result.temperature())
+                            .requiredSpf(result.requiredSpf())
+                            .riskLevel(result.riskLevel())
+                            .sunlightStart(result.sunlightStart())
+                            .averageUv(result.averageUv())
+                            .sunlightEnd(result.sunlightEnd())
+                            .sunlightMinutes(result.sunlightMinutes())
+                            .isOuting(outing)
+                            .estimatedExposureScore(
+                                    result.estimatedExposureScore()
+                            )
+                            .koreaComparison(
+                                    result.koreaComparison()
+                            )
+                            .weatherCondition(
+                                    weatherCondition
+                            )
+                            .build();
+
+            exposureRecordRepository.save(record);
+
+            return;
+        }
+
+        record.updateCalculation(
+                airportCode,
+                result.maxUv(),
+                result.temperature(),
+                result.requiredSpf(),
+                result.riskLevel(),
+                result.sunlightStart(),
+                result.averageUv(),
+                result.sunlightEnd(),
+                result.sunlightMinutes(),
+                outing,
+                result.estimatedExposureScore(),
+                result.koreaComparison(),
+                weatherCondition
+        );
+    }
+
+    /**
+     * 일정 있는 날의 외출 상태 변경
+     */
     @Transactional
     public void updateOuting(
             Schedule schedule,
@@ -124,6 +190,29 @@ public class ExposureRecordService {
         exposureRecordRepository
                 .findBySchedule(schedule)
                 .forEach(record ->
+                        record.updateOuting(
+                                outing
+                        )
+                );
+    }
+
+    /**
+     * 일정 없는 날의 외출 상태 변경
+     */
+    @Transactional
+    public void updateBaseDayOuting(
+            User user,
+            LocalDate date,
+            boolean outing
+    ) {
+
+        exposureRecordRepository
+                .findByUserAndDateAndLocationTypeAndScheduleIsNull(
+                        user,
+                        date,
+                        LocationType.ARRIVAL
+                )
+                .ifPresent(record ->
                         record.updateOuting(
                                 outing
                         )

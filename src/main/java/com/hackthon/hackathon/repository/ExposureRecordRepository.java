@@ -20,9 +20,18 @@ public interface ExposureRecordRepository
             LocalDate endDate
     );
 
+    // 비행/레이오버 일정이 있는 날
     Optional<ExposureRecord>
     findByScheduleAndDateAndLocationType(
             Schedule schedule,
+            LocalDate date,
+            LocationType locationType
+    );
+
+    // 일정 없는 소속공항 대기일
+    Optional<ExposureRecord>
+    findByUserAndDateAndLocationTypeAndScheduleIsNull(
+            User user,
             LocalDate date,
             LocationType locationType
     );
@@ -32,5 +41,7 @@ public interface ExposureRecordRepository
             Schedule schedule
     );
 
-    void deleteBySchedule(Schedule schedule);
+    void deleteBySchedule(
+            Schedule schedule
+    );
 }

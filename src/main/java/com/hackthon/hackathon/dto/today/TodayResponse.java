@@ -1,5 +1,7 @@
 package com.hackthon.hackathon.dto.today;
 
+import com.hackthon.hackathon.enums.RiskLevel;
+
 import java.util.List;
 
 public record TodayResponse(
@@ -19,7 +21,8 @@ public record TodayResponse(
 
     public record LocationInfo(
             String city,
-            String country
+            String country,
+            RiskLevel riskLevel
     ) {}
 
     public record UvSummary(
@@ -61,6 +64,7 @@ public record TodayResponse(
             String title,
             String description
     ) {}
+
     public static TodayResponse guest() {
         return new TodayResponse(
                 "GUEST",

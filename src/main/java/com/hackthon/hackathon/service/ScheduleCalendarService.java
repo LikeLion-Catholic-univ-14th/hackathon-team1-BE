@@ -2,8 +2,11 @@ package com.hackthon.hackathon.service;
 
 import com.hackthon.hackathon.dto.CalendarResponse;
 import com.hackthon.hackathon.dto.ScheduleDailyResponse;
+import com.hackthon.hackathon.entity.DailyOuting;
 import com.hackthon.hackathon.entity.Schedule;
 import com.hackthon.hackathon.entity.User;
+import com.hackthon.hackathon.enums.RiskLevel;
+import com.hackthon.hackathon.repository.DailyOutingRepository;
 import com.hackthon.hackathon.repository.ScheduleRepository;
 import com.hackthon.hackathon.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +26,7 @@ public class ScheduleCalendarService {
     private final UserRepository userRepository;
     private final ScheduleRepository scheduleRepository;
     private final ScheduleDailyService scheduleDailyService;
+    private final DailyOutingRepository dailyOutingRepository;
 
     public CalendarResponse getCalendar(
             Long userId,
@@ -64,11 +68,53 @@ public class ScheduleCalendarService {
             // 실제 일정 / 레이오버가 없는 날
             if (schedule == null) {
 
+                boolean isOuting =
+                        dailyOutingRepository
+                                .findByUserAndDate(user, date)
+                                .map(DailyOuting::isOuting)
+                                .orElse(false);
+
+                String status;
+
+                if (!isOuting) {
+
+                    status = "INDOOR";
+
+                } else {
+
+                    try {
+
+                        ScheduleDailyResponse daily =
+                                scheduleDailyService.getDaily(
+                                        userId,
+                                        date
+                                );
+
+                        if (daily.departureInfo() != null
+                                && daily.departureInfo().riskLevel() != null) {
+
+                            status =
+                                    daily.departureInfo()
+                                            .riskLevel()
+                                            .name();
+
+                        } else {
+
+                            // UV 데이터가 아직 없는 날짜
+                            status = "null";
+                        }
+
+                    } catch (Exception e) {
+
+                        status = "INDOOR";
+                    }
+                }
+
                 days.add(
                         new CalendarResponse.DayInfo(
                                 date.toString(),
                                 null,
-                                "INDOOR"
+                                status
                         )
                 );
 
@@ -87,11 +133,28 @@ public class ScheduleCalendarService {
                 String status;
 
                 if (!schedule.isOuting()) {
+
                     status = "INDOOR";
+
                 } else {
-                    status =
-                            daily.riskLevel()
-                                    .name();
+
+                    RiskLevel riskLevel;
+
+                    if (daily.arrivalInfo() != null) {
+                        riskLevel =
+                                daily.arrivalInfo()
+                                        .riskLevel();
+
+                    } else if (daily.departureInfo() != null) {
+                        riskLevel =
+                                daily.departureInfo()
+                                        .riskLevel();
+
+                    } else {
+                        riskLevel = RiskLevel.SAFE;
+                    }
+
+                    status = riskLevel.name();
                 }
 
                 days.add(
