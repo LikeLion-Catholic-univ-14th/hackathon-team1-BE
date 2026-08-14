@@ -11,8 +11,11 @@ import com.hackthon.hackathon.service.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
-
+import com.hackthon.hackathon.dto.today.TodayOutingRequest;
+import com.hackthon.hackathon.dto.today.TodayOutingResponse;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -31,6 +34,7 @@ public class TodayController {
     private final SolutionAiService solutionAiService;
     private final TodayService todayService;
     private final ExposureRecordService exposureRecordService;
+    private final TodayOutingService todayOutingService;
 
     @GetMapping("/today")
     public ResponseEntity<TodayResponse> getToday() {
@@ -476,6 +480,20 @@ public class TodayController {
         );
     }
 
+    @PatchMapping("/today/outing")
+    public ResponseEntity<TodayOutingResponse> updateTodayOuting(
+            @RequestBody TodayOutingRequest request
+    ) {
+
+        Long userId = 1L;
+
+        return ResponseEntity.ok(
+                todayOutingService.updateOuting(
+                        userId,
+                        request.outing()
+                )
+        );
+    }
 
     private String convertWeatherCondition(
             String condition
