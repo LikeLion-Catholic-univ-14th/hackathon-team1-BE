@@ -310,6 +310,8 @@ public class ScheduleDailyService {
                 baseAirportCode,
                 "STAY",
                 isOuting,
+                null,
+                null,
                 baseInfo,
                 null
         );
@@ -399,6 +401,8 @@ public class ScheduleDailyService {
                 route,
                 flightStatus,
                 schedule.isOuting(),
+                schedule.getDepartureTime(),
+                schedule.getArrivalTime(),
                 departureInfo,
                 arrivalInfo
         );
