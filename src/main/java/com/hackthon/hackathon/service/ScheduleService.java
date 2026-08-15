@@ -23,19 +23,24 @@ public class ScheduleService {
     private final SunscreenRepository sunscreenRepository;
     private final ExposureRecordService exposureRecordService;
     private final ExposureRecordRepository exposureRecordRepository;
+
+    // ==========================================
     // 일정 여러 개 최종 등록
+    // ==========================================
+
     @Transactional
     public ScheduleCreateResponse createSchedule(
             Long userId,
             ScheduleCreateRequest request
     ) {
 
-        User user = userRepository.findById(userId)
-                .orElseThrow(() ->
-                        new IllegalArgumentException(
-                                "해당 유저를 찾을 수 없습니다."
-                        )
-                );
+        User user =
+                userRepository.findById(userId)
+                        .orElseThrow(() ->
+                                new IllegalArgumentException(
+                                        "해당 유저를 찾을 수 없습니다."
+                                )
+                        );
 
         if (request.schedules() == null
                 || request.schedules().isEmpty()) {
@@ -45,25 +50,43 @@ public class ScheduleService {
             );
         }
 
+
+
         List<Schedule> schedules =
                 request.schedules()
                         .stream()
-                        .map(item ->
-                                Schedule.create(
-                                        user,
-                                        item.flightNumber(),
-                                        item.departureAirport(),
-                                        item.arrivalAirport(),
-                                        item.departureTime(),
-                                        item.arrivalTime(),
-                                        false
-                                )
-                        )
+                        .map(item -> {
+
+                            if (!item.arrivalTime()
+                                    .isAfter(item.departureTime())) {
+
+                                throw new IllegalArgumentException(
+                                        "도착 일시는 출발 일시 이후여야 합니다."
+                                );
+                            }
+
+                            return Schedule.create(
+                                    user,
+                                    item.flightNumber(),
+                                    item.departureAirport(),
+                                    item.arrivalAirport(),
+                                    item.departureTime(),
+                                    item.arrivalTime(),
+                                    item.isQuickTurn()
+                            );
+                        })
                         .toList();
 
         scheduleRepository.saveAll(
                 schedules
         );
+
+        /*
+         * 스케줄을 한 번이라도 최종 등록했음을 기록
+         *
+         * 이후 일정이 삭제돼도 true 유지
+         */
+        user.markScheduleRegistered();
 
         return new ScheduleCreateResponse(
                 "SUCCESS",
@@ -71,7 +94,11 @@ public class ScheduleService {
         );
     }
 
+
+    // ==========================================
     // 외출 여부 수정
+    // ==========================================
+
     @Transactional
     public Schedule updateOuting(
             Long scheduleId,
@@ -86,12 +113,10 @@ public class ScheduleService {
                                 )
                         );
 
-        // Schedule 변경
         schedule.updateOuting(
                 outing
         );
 
-        // 이미 생성된 ExposureRecord에도 동일하게 반영
         exposureRecordService.updateOuting(
                 schedule,
                 outing
@@ -100,7 +125,11 @@ public class ScheduleService {
         return schedule;
     }
 
+
+    // ==========================================
     // 일정 수정
+    // ==========================================
+
     @Transactional
     public ScheduleUpdateResponse updateSchedule(
             Long scheduleId,
@@ -114,9 +143,18 @@ public class ScheduleService {
                                         "해당 일정을 찾을 수 없습니다."
                                 )
                         );
+
         exposureRecordRepository.deleteBySchedule(
                 schedule
         );
+        if (!request.arrivalTime()
+                .isAfter(request.departureTime())) {
+
+            throw new IllegalArgumentException(
+                    "도착 일시는 출발 일시 이후여야 합니다."
+            );
+        }
+
         schedule.update(
                 request.flightNumber(),
                 request.departureAirport(),
@@ -131,6 +169,11 @@ public class ScheduleService {
                 "비행 일정이 수정되었어요."
         );
     }
+
+
+    // ==========================================
+    // 솔루션 적용
+    // ==========================================
 
     @Transactional
     public void applySolution(

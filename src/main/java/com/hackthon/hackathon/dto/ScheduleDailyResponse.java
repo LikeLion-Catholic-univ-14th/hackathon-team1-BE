@@ -16,6 +16,7 @@ public record ScheduleDailyResponse(
 
     public record LocationInfo(
             String airportCode,
+            String koreaTimeDifference,
             RiskLevel riskLevel,
             UvDetail uvDetail
     ) {
