@@ -1,5 +1,6 @@
 package com.hackthon.hackathon.util;
 
+import java.time.ZoneId;
 import java.util.Map;
 
 public class AirportLocationMapper {
@@ -187,16 +188,37 @@ public class AirportLocationMapper {
     private AirportLocationMapper() {
     }
 
-    public static AirportInfo getAirportInfo(String airportCode) {
+    public static AirportInfo getAirportInfo(
+            String airportCode
+    ) {
 
-        AirportInfo airportInfo = AIRPORTS.get(airportCode);
+        AirportInfo airportInfo =
+                AIRPORTS.get(
+                        airportCode
+                );
 
         if (airportInfo == null) {
+
             throw new IllegalArgumentException(
-                    "지원하지 않는 공항 코드입니다: " + airportCode
+                    "지원하지 않는 공항 코드입니다: "
+                            + airportCode
             );
         }
 
         return airportInfo;
+    }
+
+    public static ZoneId getZoneId(
+            String airportCode
+    ) {
+
+        AirportInfo airportInfo =
+                getAirportInfo(
+                        airportCode
+                );
+
+        return ZoneId.of(
+                airportInfo.timezone()
+        );
     }
 }

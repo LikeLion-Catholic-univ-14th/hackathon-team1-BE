@@ -1,6 +1,7 @@
 package com.hackthon.hackathon.service;
+import com.hackthon.hackathon.util.AirportLocationMapper;
 import org.springframework.stereotype.Service;
-import com.hackthon.hackathon.util.AirportTimeZoneMapper;
+
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -18,7 +19,7 @@ public class TimeConversionService {
     ) {
 
         ZoneId localZone =
-                AirportTimeZoneMapper.getZoneId(airportCode);
+                AirportLocationMapper.getZoneId(airportCode);
 
         return localDateTime
                 .atZone(localZone)
@@ -32,7 +33,7 @@ public class TimeConversionService {
     ) {
 
         ZoneId localZone =
-                AirportTimeZoneMapper.getZoneId(airportCode);
+                AirportLocationMapper.getZoneId(airportCode);
 
         return utcTime.atZone(localZone);
     }

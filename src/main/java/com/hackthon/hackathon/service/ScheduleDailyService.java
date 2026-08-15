@@ -478,6 +478,10 @@ public class ScheduleDailyService {
 
             return new ScheduleDailyResponse.LocationInfo(
                     airportCode,
+                    calculateKoreaTimeDifference(
+                            airportCode,
+                            date
+                    ),
                     null,
                     new ScheduleDailyResponse.UvDetail(
                             List.of(),
@@ -502,10 +506,12 @@ public class ScheduleDailyService {
 
         return new ScheduleDailyResponse.LocationInfo(
                 airportCode,
+                calculateKoreaTimeDifference(
+                        airportCode,
+                        date
+                ),
                 exposureCalculationService
-                        .calculateRiskLevel(
-                                maxUv
-                        ),
+                        .calculateRiskLevel(maxUv),
                 new ScheduleDailyResponse.UvDetail(
                         graph,
                         warningMessage
@@ -621,5 +627,45 @@ public class ScheduleDailyService {
             case INCHEON -> "ICN";
             case GIMPO -> "GMP";
         };
+    }
+    private String calculateKoreaTimeDifference(
+            String airportCode,
+            LocalDate date
+    ) {
+
+        String timezone =
+                com.hackthon.hackathon.util.AirportLocationMapper
+                        .getAirportInfo(airportCode)
+                        .timezone();
+
+        java.time.ZoneId koreaZone =
+                java.time.ZoneId.of("Asia/Seoul");
+
+        java.time.ZoneId localZone =
+                java.time.ZoneId.of(timezone);
+
+        java.time.ZonedDateTime koreaTime =
+                date.atStartOfDay(koreaZone);
+
+        java.time.ZonedDateTime localTime =
+                date.atStartOfDay(localZone);
+
+        int koreaOffsetSeconds =
+                koreaTime.getOffset()
+                        .getTotalSeconds();
+
+        int localOffsetSeconds =
+                localTime.getOffset()
+                        .getTotalSeconds();
+
+        int differenceHours =
+                (localOffsetSeconds - koreaOffsetSeconds)
+                        / 3600;
+
+        if (differenceHours > 0) {
+            return "+" + differenceHours + "시간";
+        }
+
+        return differenceHours + "시간";
     }
 }
