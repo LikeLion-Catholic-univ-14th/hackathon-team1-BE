@@ -2,6 +2,7 @@ package com.hackthon.hackathon.dto;
 
 import com.hackthon.hackathon.enums.RiskLevel;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 public record ScheduleDailyResponse(
@@ -10,6 +11,8 @@ public record ScheduleDailyResponse(
         String route,
         String flightStatus,
         boolean isOuting,
+        LocalDateTime departureTime,
+        LocalDateTime arrivalTime,
         LocationInfo departureInfo,
         LocationInfo arrivalInfo
 ) {
