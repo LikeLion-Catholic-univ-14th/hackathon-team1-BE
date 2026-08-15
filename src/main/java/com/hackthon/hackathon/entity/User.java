@@ -75,12 +75,19 @@ public class User {
         this.procedureWithinOneMonth = procedureWithinOneMonth;
     }
 
-    /*
-     * 최초 일정 등록 완료 처리
-     *
-     * 한번 true가 되면 다시 false로 변경하지 않음
-     */
     public void markScheduleRegistered() {
         this.hasScheduleHistory = true;
+    }
+
+
+    public User(String name, BaseAirport baseAirport, Set<SkinType> skinTypes, Set<SkinConcern> skinConcerns,
+                boolean hasProcedureHistory, String procedureDetails, Boolean procedureWithinOneMonth) {
+        this.name = name;
+        this.baseAirport = baseAirport;
+        this.skinTypes = skinTypes != null ? skinTypes : new HashSet<>();
+        this.skinConcerns = skinConcerns != null ? skinConcerns : new HashSet<>();
+        this.hasProcedureHistory = hasProcedureHistory;
+        this.procedureDetails = procedureDetails;
+        this.procedureWithinOneMonth = procedureWithinOneMonth;
     }
 }
