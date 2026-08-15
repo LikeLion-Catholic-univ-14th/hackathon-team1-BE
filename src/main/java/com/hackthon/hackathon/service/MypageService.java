@@ -20,11 +20,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
-import java.util.stream.Collectors;
-
 @Service
 @RequiredArgsConstructor
 public class MypageService {
@@ -35,6 +30,7 @@ public class MypageService {
     public MypageResponse getMypageProfile(){
         User user = userRepository.findById(1L)
                 .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 유저입니다."));
+
         List<Sunscreen> sunscreens = sunscreenRepository.findByUserId(user.getId());
         List<MypageResponse.PouchItemDto> pouchDtos = sunscreens.stream()
                 .map(sunscreen -> MypageResponse.PouchItemDto.builder()
@@ -54,13 +50,21 @@ public class MypageService {
         List<String> skinConcernStrings = user.getSkinConcerns() != null ?
                 user.getSkinConcerns().stream().map(Enum::name).collect(Collectors.toList()) : null;
 
+        // 👇 [추가된 부분] 유저 엔티티에서 시술 이력을 꺼내서 DTO용 작은 바구니에 담기
+        MypageResponse.ProcedureHistoryDto procedureDto = MypageResponse.ProcedureHistoryDto.builder()
+                .hasHistory(user.isHasProcedureHistory())
+                .detail(user.getProcedureDetails())
+                .isRecentOneMonth(user.getProcedureWithinOneMonth())
+                .build();
+
         // 5. 최종 응답 DTO 빌드 및 반환
         return MypageResponse.builder()
                 .name(user.getName())
                 .baseAirport(user.getBaseAirport() != null ? user.getBaseAirport().name() : null)
                 .skinTypes(skinTypeStrings)
                 .skinConcerns(skinConcernStrings)
-                .pouch(pouchDtos) // 등록된 게 없으면 자연스럽게 빈 리스트([])가 담깁니다!
+                .procedureHistory(procedureDto) // 👇 [추가된 부분] 최종 응답에 시술 이력 바구니 추가!
+                .pouch(pouchDtos)
                 .build();
     }
 

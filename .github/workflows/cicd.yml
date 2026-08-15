@@ -68,6 +68,7 @@ jobs:
             User=${USER}
             ExecStart=/usr/bin/java -jar /opt/myapp/app.jar
             Restart=always
+            EnvironmentFile=/home/ubuntu/.env
 
             [Install]
             WantedBy=multi-user.target" | sudo tee /etc/systemd/system/myapp.service
