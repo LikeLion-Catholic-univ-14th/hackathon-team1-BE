@@ -31,6 +31,10 @@ public class ScheduleDailyService {
     private final WeatherService weatherService;
     private final ExposureCalculationService exposureCalculationService;
 
+    // 추가
+    private final SunlightWindowService sunlightWindowService;
+    private final ExposureRecordService exposureRecordService;
+
 
     // =====================================================
     // 날짜 상세 조회
@@ -71,21 +75,63 @@ public class ScheduleDailyService {
                 );
 
 
-        // 일정 없는 날
+        // =================================================
+        // 일정 없는 소속공항 대기일
+        // =================================================
+
         if (schedule == null) {
 
-            return createBaseDayResponse(
+            ScheduleDailyResponse response =
+                    createBaseDayResponse(
+                            user,
+                            date
+                    );
+
+
+            /*
+             * 일정 없는 날도
+             * 날짜 상세을 실제 조회했다면
+             * ExposureRecord 생성
+             */
+            saveBaseDayExposure(
                     user,
-                    date
+                    baseAirportCode,
+                    date,
+                    response.isOuting()
             );
+
+
+            return response;
         }
 
 
-        return createResponse(
+        // =================================================
+        // 비행 / 레이오버
+        // =================================================
+
+        ScheduleDailyResponse response =
+                createResponse(
+                        user,
+                        schedule,
+                        date
+                );
+
+
+        /*
+         * 날짜 상세 조회 시
+         * 그 날짜의 ExposureRecord 생성/갱신
+         */
+        saveScheduleExposure(
                 user,
+                schedules,
                 schedule,
-                date
+                date,
+                response.isOuting(),
+                baseAirportCode
         );
+
+
+        return response;
     }
 
 
@@ -111,6 +157,13 @@ public class ScheduleDailyService {
         );
     }
 
+
+    // =====================================================
+    // 캘린더용
+    //
+    // 캘린더에서 매일 호출될 수 있으므로
+    // 여기서는 DB 저장하지 않는다.
+    // =====================================================
 
     public ScheduleDailyResponse getDailyBySchedule(
             Schedule schedule,
@@ -149,6 +202,7 @@ public class ScheduleDailyService {
                                             schedule
                                     )
                                             .toLocalDate();
+
 
                             LocalDate arrivalDate =
                                     getArrivalLocalTime(
@@ -199,7 +253,7 @@ public class ScheduleDailyService {
 
             /*
              * 소속공항으로 귀국한 경우
-             * 레이오버로 취급 X
+             * 레이오버 X
              */
             if (current.getArrivalAirport()
                     .equals(
@@ -211,25 +265,10 @@ public class ScheduleDailyService {
 
 
             Schedule nextDeparture =
-                    schedules.stream()
-                            .filter(next ->
-                                    next.getDepartureTime()
-                                            .isAfter(
-                                                    current.getArrivalTime()
-                                            )
-                            )
-                            .filter(next ->
-                                    next.getDepartureAirport()
-                                            .equals(
-                                                    current.getArrivalAirport()
-                                            )
-                            )
-                            .min(
-                                    Comparator.comparing(
-                                            Schedule::getDepartureTime
-                                    )
-                            )
-                            .orElse(null);
+                    findNextDeparture(
+                            schedules,
+                            current
+                    );
 
 
             if (nextDeparture == null) {
@@ -251,14 +290,6 @@ public class ScheduleDailyService {
                     nextDepartureDate
             )) {
 
-                /*
-                 * Schedule 객체 자체는
-                 * 레이오버의 기준 비행편을 반환하지만,
-                 *
-                 * outing 상태는 아래 createResponse에서
-                 * date 기준 DailyOuting을 사용하므로
-                 * 날짜별로 독립적이다.
-                 */
                 return current;
             }
         }
@@ -269,7 +300,42 @@ public class ScheduleDailyService {
 
 
     // =====================================================
-    // 소속공항 대기일
+    // 다음 출발편 찾기
+    // =====================================================
+
+    private Schedule findNextDeparture(
+            List<Schedule> schedules,
+            Schedule current
+    ) {
+
+        return schedules.stream()
+
+                .filter(next ->
+                        next.getDepartureTime()
+                                .isAfter(
+                                        current.getArrivalTime()
+                                )
+                )
+
+                .filter(next ->
+                        next.getDepartureAirport()
+                                .equals(
+                                        current.getArrivalAirport()
+                                )
+                )
+
+                .min(
+                        Comparator.comparing(
+                                Schedule::getDepartureTime
+                        )
+                )
+
+                .orElse(null);
+    }
+
+
+    // =====================================================
+    // 소속공항 대기일 응답
     // =====================================================
 
     private ScheduleDailyResponse createBaseDayResponse(
@@ -278,7 +344,8 @@ public class ScheduleDailyService {
     ) {
 
         /*
-         * 일정 없는 날 기본 INDOOR(false)
+         * 일정 없는 날
+         * DailyOuting 없으면 기본 INDOOR
          */
         boolean isOuting =
                 dailyOutingRepository
@@ -343,10 +410,9 @@ public class ScheduleDailyService {
 
 
         /*
-         * 핵심:
+         * 일정 있는 날
          *
-         * 일정 있는 날은 DailyOuting이 없으면
-         * 기본 OUTING(true)
+         * DailyOuting 없으면 기본 OUTING
          */
         boolean isOuting =
                 dailyOutingRepository
@@ -408,7 +474,7 @@ public class ScheduleDailyService {
 
 
         /*
-         * DB UTC → 각 공항 현지시간
+         * DB UTC → 현지시간
          */
         LocalDateTime departureLocalTime =
                 getDepartureLocalTime(
@@ -433,6 +499,325 @@ public class ScheduleDailyService {
                 departureInfo,
                 arrivalInfo
         );
+    }
+
+
+    // =====================================================
+    // 일정 있는 날 ExposureRecord 생성
+    // =====================================================
+
+    private void saveScheduleExposure(
+            User user,
+            List<Schedule> schedules,
+            Schedule schedule,
+            LocalDate date,
+            boolean outing,
+            String baseAirportCode
+    ) {
+
+        String flightStatus =
+                calculateFlightStatus(
+                        schedule,
+                        date
+                );
+
+
+        /*
+         * 어떤 도시의 자외선 노출을
+         * 기록할지 결정
+         */
+        String airportCode;
+
+
+        if ("ARRIVED".equals(
+                flightStatus
+        )) {
+
+            // 레이오버
+            airportCode =
+                    schedule.getArrivalAirport();
+
+        } else if ("IN_FLIGHT".equals(
+                flightStatus
+        )) {
+
+            /*
+             * 비행일은 일단 도착지를
+             * 노출 도시 기준으로 사용
+             */
+            airportCode =
+                    schedule.getArrivalAirport();
+
+        } else {
+
+            // 출발 전
+            airportCode =
+                    schedule.getDepartureAirport();
+        }
+
+
+        WeatherResponse weather =
+                weatherService.getWeather(
+                        airportCode
+                );
+
+
+        SunlightWindowService.AvailableWindow availableWindow;
+
+
+        // ------------------------------------------
+        // 레이오버
+        // ------------------------------------------
+
+        if ("ARRIVED".equals(
+                flightStatus
+        )) {
+
+            Schedule nextDeparture =
+                    findNextDeparture(
+                            schedules,
+                            schedule
+                    );
+
+
+            LocalDateTime arrivalLocal =
+                    getArrivalLocalTime(
+                            schedule
+                    );
+
+
+            LocalDateTime nextDepartureLocal =
+                    nextDeparture != null
+                            ? getDepartureLocalTime(
+                            nextDeparture
+                    )
+                            : null;
+
+
+            /*
+             * 전체 레이오버가 며칠이어도
+             * 조회 날짜 하루로 잘라서 계산한다.
+             */
+            LocalDateTime dayStart =
+                    date.atStartOfDay();
+
+
+            LocalDateTime dayEnd =
+                    date.atTime(
+                            23,
+                            59,
+                            59
+                    );
+
+
+            LocalDateTime effectiveStart =
+                    arrivalLocal.isAfter(
+                            dayStart
+                    )
+                            ? arrivalLocal
+                            : dayStart;
+
+
+            LocalDateTime effectiveEnd;
+
+
+            if (nextDepartureLocal == null) {
+
+                effectiveEnd =
+                        dayEnd;
+
+            } else {
+
+                effectiveEnd =
+                        nextDepartureLocal.isBefore(
+                                dayEnd
+                        )
+                                ? nextDepartureLocal
+                                : dayEnd;
+            }
+
+
+            /*
+             * 당일 계산 가능한 구간이 없으면 저장 X
+             */
+            if (!effectiveEnd.isAfter(
+                    effectiveStart
+            )) {
+                return;
+            }
+
+
+            availableWindow =
+                    sunlightWindowService
+                            .calculateAvailableWindow(
+                                    effectiveStart,
+                                    effectiveEnd,
+                                    schedule.isQuickTurn()
+                            )
+                            .orElse(null);
+
+        } else {
+
+            /*
+             * 출발일 / 비행일
+             *
+             * 우선 해당 날짜 하루 기준으로
+             * 햇빛창을 계산.
+             *
+             * 비행일 세부 노출은 기존 Today 계산과
+             * 완전히 같은 정책으로 만들려면
+             * 별도 로직이 필요하지만,
+             * 월말 연결을 위해 날짜 단위 record 생성.
+             */
+            availableWindow =
+                    sunlightWindowService
+                            .calculateBaseDayAvailableWindow(
+                                    date
+                            );
+        }
+
+
+        if (availableWindow == null) {
+            return;
+        }
+
+
+        List<SunlightWindowService.SunlightWindow> windows =
+                sunlightWindowService
+                        .calculateSunlightWindows(
+                                availableWindow,
+                                weather
+                        );
+
+
+        if (windows.isEmpty()) {
+            return;
+        }
+
+
+        WeatherResponse seoulWeather =
+                weatherService.getSeoulWeather();
+
+
+        int sunlightMinutes =
+                windows.stream()
+                        .mapToInt(window ->
+                                (int) window.minutes()
+                        )
+                        .sum();
+
+
+        double seoulComparableExposureScore =
+                exposureCalculationService
+                        .calculateSeoulComparableExposureScore(
+                                seoulWeather,
+                                sunlightMinutes
+                        );
+
+
+        ExposureCalculationService.ExposureResult exposureResult =
+                exposureCalculationService
+                        .calculateExposure(
+                                windows,
+                                weather,
+                                seoulComparableExposureScore
+                        );
+
+
+        /*
+         * 월말 리포트가 읽는 ExposureRecord 생성
+         */
+        exposureRecordService
+                .saveOrUpdate(
+                        schedule,
+                        airportCode,
+                        date,
+                        outing,
+                        exposureResult,
+                        getWeatherCondition(
+                                weather, date
+                        )
+                );
+    }
+
+
+    // =====================================================
+    // 일정 없는 날 ExposureRecord 생성
+    // =====================================================
+
+    private void saveBaseDayExposure(
+            User user,
+            String airportCode,
+            LocalDate date,
+            boolean outing
+    ) {
+
+        WeatherResponse weather =
+                weatherService.getWeather(
+                        airportCode
+                );
+
+
+        SunlightWindowService.AvailableWindow availableWindow =
+                sunlightWindowService
+                        .calculateBaseDayAvailableWindow(
+                                date
+                        );
+
+
+        List<SunlightWindowService.SunlightWindow> windows =
+                sunlightWindowService
+                        .calculateSunlightWindows(
+                                availableWindow,
+                                weather
+                        );
+
+
+        if (windows.isEmpty()) {
+            return;
+        }
+
+
+        WeatherResponse seoulWeather =
+                weatherService.getSeoulWeather();
+
+
+        int sunlightMinutes =
+                windows.stream()
+                        .mapToInt(window ->
+                                (int) window.minutes()
+                        )
+                        .sum();
+
+
+        double seoulComparableExposureScore =
+                exposureCalculationService
+                        .calculateSeoulComparableExposureScore(
+                                seoulWeather,
+                                sunlightMinutes
+                        );
+
+
+        ExposureCalculationService.ExposureResult exposureResult =
+                exposureCalculationService
+                        .calculateExposure(
+                                windows,
+                                weather,
+                                seoulComparableExposureScore
+                        );
+
+
+        exposureRecordService
+                .saveOrUpdateBaseDay(
+                        user,
+                        airportCode,
+                        date,
+                        outing,
+                        exposureResult,
+                        getWeatherCondition(
+                                weather, date
+                        )
+                );
     }
 
 
@@ -462,6 +847,7 @@ public class ScheduleDailyService {
         if (date.equals(
                 departureDate
         )) {
+
             return "IN_FLIGHT";
         }
 
@@ -469,6 +855,7 @@ public class ScheduleDailyService {
         if (!date.isBefore(
                 arrivalDate
         )) {
+
             return "ARRIVED";
         }
 
@@ -529,11 +916,14 @@ public class ScheduleDailyService {
 
             return new ScheduleDailyResponse.LocationInfo(
                     airportCode,
+
                     calculateKoreaTimeDifference(
                             airportCode,
                             date
                     ),
+
                     null,
+
                     new ScheduleDailyResponse.UvDetail(
                             List.of(),
                             null
@@ -545,7 +935,8 @@ public class ScheduleDailyService {
         double maxUv =
                 graph.stream()
                         .mapToDouble(
-                                ScheduleDailyResponse.UvPoint::uvValue
+                                ScheduleDailyResponse
+                                        .UvPoint::uvValue
                         )
                         .max()
                         .orElse(0.0);
@@ -559,14 +950,17 @@ public class ScheduleDailyService {
 
         return new ScheduleDailyResponse.LocationInfo(
                 airportCode,
+
                 calculateKoreaTimeDifference(
                         airportCode,
                         date
                 ),
+
                 exposureCalculationService
                         .calculateRiskLevel(
                                 maxUv
                         ),
+
                 new ScheduleDailyResponse.UvDetail(
                         graph,
                         warningMessage
@@ -646,16 +1040,150 @@ public class ScheduleDailyService {
     }
 
 
+    // =====================================================
+    // 날씨 condition
+    // =====================================================
+
+    private String getWeatherCondition(
+            WeatherResponse weather,
+            LocalDate date
+    ) {
+
+        if (weather == null
+                || weather.getHourly() == null
+                || weather.getHourly().getTime() == null
+                || weather.getHourly().getWeatherCode() == null) {
+
+            return null;
+        }
+
+        List<String> times =
+                weather.getHourly().getTime();
+
+        List<Integer> codes =
+                weather.getHourly().getWeatherCode();
+
+        int size =
+                Math.min(
+                        times.size(),
+                        codes.size()
+                );
+
+        /*
+         * 해당 날짜의 weather_code 중
+         * 낮 시간대 우선으로 대표값 선택
+         */
+        Integer selectedCode = null;
+
+        for (int i = 0; i < size; i++) {
+
+            String timeString =
+                    times.get(i);
+
+            Integer code =
+                    codes.get(i);
+
+            if (timeString == null
+                    || code == null) {
+                continue;
+            }
+
+            LocalDateTime time =
+                    LocalDateTime.parse(
+                            timeString
+                    );
+
+            if (!time.toLocalDate()
+                    .equals(date)) {
+                continue;
+            }
+
+            /*
+             * 12시 weather_code를 대표값으로 우선 사용
+             */
+            if (time.getHour() == 12) {
+
+                selectedCode = code;
+                break;
+            }
+
+            /*
+             * 12시가 없을 경우를 대비한 fallback
+             */
+            if (selectedCode == null) {
+                selectedCode = code;
+            }
+        }
+
+        if (selectedCode == null) {
+            return null;
+        }
+
+        return convertWeatherCode(
+                selectedCode
+        );
+    }
+
+
+    private String convertWeatherCode(
+            int code
+    ) {
+
+        /*
+         * Open-Meteo WMO weather code
+         */
+
+        if (code == 0) {
+            return "CLEAR";
+        }
+
+        if (code == 1
+                || code == 2
+                || code == 3) {
+
+            return "CLOUDY";
+        }
+
+        if (code == 45
+                || code == 48) {
+
+            return "FOG";
+        }
+
+        if ((code >= 51 && code <= 57)
+                || (code >= 61 && code <= 67)
+                || (code >= 80 && code <= 82)) {
+
+            return "RAIN";
+        }
+
+        if ((code >= 71 && code <= 77)
+                || (code >= 85 && code <= 86)) {
+
+            return "SNOW";
+        }
+
+        if (code >= 95 && code <= 99) {
+
+            return "THUNDERSTORM";
+        }
+
+        return "UNKNOWN";
+    }
+
+
     private String createWarningMessage(
             double maxUv
     ) {
 
         if (maxUv >= 8) {
+
             return "자외선이 매우 강한 날입니다.";
         }
 
 
         if (maxUv >= 5) {
+
             return "자외선 노출에 주의가 필요합니다.";
         }
 
@@ -678,8 +1206,11 @@ public class ScheduleDailyService {
 
         return switch (baseAirport) {
 
-            case INCHEON -> "ICN";
-            case GIMPO -> "GMP";
+            case INCHEON ->
+                    "ICN";
+
+            case GIMPO ->
+                    "GMP";
         };
     }
 
@@ -690,7 +1221,8 @@ public class ScheduleDailyService {
     ) {
 
         String timezone =
-                com.hackthon.hackathon.util.AirportLocationMapper
+                com.hackthon.hackathon.util
+                        .AirportLocationMapper
                         .getAirportInfo(
                                 airportCode
                         )
@@ -722,18 +1254,22 @@ public class ScheduleDailyService {
 
 
         int koreaOffsetSeconds =
-                koreaTime.getOffset()
+                koreaTime
+                        .getOffset()
                         .getTotalSeconds();
 
 
         int localOffsetSeconds =
-                localTime.getOffset()
+                localTime
+                        .getOffset()
                         .getTotalSeconds();
 
 
         int differenceHours =
-                (localOffsetSeconds
-                        - koreaOffsetSeconds)
+                (
+                        localOffsetSeconds
+                                - koreaOffsetSeconds
+                )
                         / 3600;
 
 

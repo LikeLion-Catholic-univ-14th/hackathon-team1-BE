@@ -1,4 +1,5 @@
 package com.hackthon.hackathon.dto;
+
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -8,6 +9,7 @@ import java.util.List;
 @Getter
 @NoArgsConstructor
 public class WeatherResponse {
+
     private String timezone;
 
     private Hourly hourly;
