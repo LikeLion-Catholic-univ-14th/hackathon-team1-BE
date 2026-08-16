@@ -11,7 +11,7 @@ import java.util.List;
 public class ProfileUpdateRequest {
     private String name;
     private String baseAirport;
-    private String skinType; // 프론트 명세서상 단일 문자열
+    private List<String> skinTypes;
     private List<String> skinConcerns;
     private ProcedureHistoryDto procedureHistory;
 

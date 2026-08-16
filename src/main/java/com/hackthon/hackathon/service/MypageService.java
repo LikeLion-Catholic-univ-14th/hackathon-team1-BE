@@ -43,27 +43,27 @@ public class MypageService {
                         .build())
                 .collect(Collectors.toList());
 
-        // 4. 유저의 피부 타입 및 고민 Enum 리스트를 String 리스트로 변환
+
         List<String> skinTypeStrings = user.getSkinTypes() != null ?
                 user.getSkinTypes().stream().map(Enum::name).collect(Collectors.toList()) : null;
 
         List<String> skinConcernStrings = user.getSkinConcerns() != null ?
                 user.getSkinConcerns().stream().map(Enum::name).collect(Collectors.toList()) : null;
 
-        // 👇 [추가된 부분] 유저 엔티티에서 시술 이력을 꺼내서 DTO용 작은 바구니에 담기
+
         MypageResponse.ProcedureHistoryDto procedureDto = MypageResponse.ProcedureHistoryDto.builder()
                 .hasHistory(user.isHasProcedureHistory())
                 .detail(user.getProcedureDetails())
                 .isRecentOneMonth(user.getProcedureWithinOneMonth())
                 .build();
 
-        // 5. 최종 응답 DTO 빌드 및 반환
+
         return MypageResponse.builder()
                 .name(user.getName())
                 .baseAirport(user.getBaseAirport() != null ? user.getBaseAirport().name() : null)
                 .skinTypes(skinTypeStrings)
                 .skinConcerns(skinConcernStrings)
-                .procedureHistory(procedureDto) // 👇 [추가된 부분] 최종 응답에 시술 이력 바구니 추가!
+                .procedureHistory(procedureDto) // 최종 응답에 시술 이력 바구니 추가!
                 .pouch(pouchDtos)
                 .build();
     }
@@ -77,12 +77,14 @@ public class MypageService {
                 BaseAirport.valueOf(request.getBaseAirport()) : user.getBaseAirport();
 
         Set<SkinType> skinTypes = new HashSet<>();
-        if (request.getSkinType() != null) {
-            skinTypes.add(SkinType.valueOf(request.getSkinType()));
+        if (request.getSkinTypes() != null && !request.getSkinTypes().isEmpty()) {
+            skinTypes = request.getSkinTypes().stream()
+                    .map(SkinType::valueOf)
+                    .collect(Collectors.toSet());
         }
 
         Set<SkinConcern> concerns = new HashSet<>();
-        if (request.getSkinConcerns() != null) {
+        if (request.getSkinConcerns() != null && !request.getSkinConcerns().isEmpty()) {
             concerns = request.getSkinConcerns().stream()
                     .map(SkinConcern::valueOf)
                     .collect(Collectors.toSet());
@@ -124,7 +126,6 @@ public class MypageService {
 
     @org.springframework.transaction.annotation.Transactional
     public void addProcedure(ProcedureDto.Request request) {
-        // 현재 하드코딩된 1번 유저 사용
         User user = userRepository.findById(1L)
                 .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 유저입니다."));
 
@@ -137,7 +138,7 @@ public class MypageService {
         procedureHistoryRepository.save(procedure);
     }
 
-    // 2. 조회
+    //조회
     public List<ProcedureDto.Response> getProcedures() {
         return procedureHistoryRepository.findByUserId(1L).stream()
                 .map(p -> ProcedureDto.Response.builder()
@@ -148,7 +149,7 @@ public class MypageService {
                 .collect(java.util.stream.Collectors.toList());
     }
 
-    // 3. 삭제
+    //삭제
     @org.springframework.transaction.annotation.Transactional
     public void deleteProcedure(Long procedureId) {
         procedureHistoryRepository.deleteById(procedureId);
