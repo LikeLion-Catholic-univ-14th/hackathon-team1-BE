@@ -17,6 +17,9 @@ import org.springframework.web.bind.annotation.RestController;
 import com.hackthon.hackathon.dto.today.TodayOutingRequest;
 import com.hackthon.hackathon.dto.today.TodayOutingResponse;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -37,7 +40,7 @@ public class TodayController {
     private final TodayOutingService todayOutingService;
 
     @GetMapping("/today")
-    public ResponseEntity<TodayResponse> getToday() {
+    public ResponseEntity<TodayResponse> getToday(ZoneId zoneId) {
 
         Long userId = 1L;
 
@@ -226,11 +229,15 @@ public class TodayController {
         // =========================
 
         String position;
-
+        Schedule currentSchedule=
+                scheduleInfo.schedule();
         if (scheduleInfo.baseDay()) {
 
             position = "대기";
 
+        } else if (currentSchedule != null
+        && LocalDateTime.now(ZoneOffset.UTC).isBefore(currentSchedule.getDepartureTime())) {
+            position = "대기";
         } else if (scheduleInfo.quickTurn()) {
 
             position = "퀵턴";
