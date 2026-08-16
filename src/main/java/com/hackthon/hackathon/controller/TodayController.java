@@ -213,6 +213,7 @@ public class TodayController {
                                 currentSchedule,
                                 airportCode,
                                 scheduleInfo.localDate(),
+                                scheduleInfo.outing(),
                                 exposureResult,
                                 homeResponse.weatherCondition()
                         );

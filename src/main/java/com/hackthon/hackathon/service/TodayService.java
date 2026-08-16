@@ -205,6 +205,14 @@ public class TodayService {
             stayArrivalTime =
                     localDate.atStartOfDay();
         }
+        boolean outing =
+                dailyOutingRepository
+                        .findByUserAndDate(
+                                user,
+                                localDate
+                        )
+                        .map(DailyOuting::isOuting)
+                        .orElse(true);
 
 
         return new TodayScheduleInfo(
@@ -212,7 +220,7 @@ public class TodayService {
                 stayArrivalTime,
                 nextDepartureTime,
                 schedule.isQuickTurn(),
-                schedule.isOuting(),
+                outing,
                 schedule,
                 false,
                 localDate
