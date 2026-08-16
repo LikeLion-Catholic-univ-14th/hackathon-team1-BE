@@ -5,6 +5,7 @@ import com.hackthon.hackathon.entity.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Optional;
 
 public interface DailyOutingRepository
@@ -13,5 +14,10 @@ public interface DailyOutingRepository
     Optional<DailyOuting> findByUserAndDate(
             User user,
             LocalDate date
+    );
+    List<DailyOuting> findByUserAndDateBetweenOrderByDateAsc(
+            User user,
+            LocalDate startDate,
+            LocalDate endDate
     );
 }
