@@ -36,7 +36,7 @@ public class TodayOutingService {
 
             dailyOutingService.updateOuting(
                     userId,
-                    LocalDate.now(),
+                    todayInfo.localDate(),
                     outing
             );
 
