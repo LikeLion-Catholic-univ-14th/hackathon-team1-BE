@@ -17,14 +17,17 @@ public class ExposureRecordService {
 
     private final ExposureRecordRepository exposureRecordRepository;
 
-    /**
-     * 비행/레이오버 일정이 있는 날
-     */
+
+    // ==========================================
+    // 일정 있는 날
+    // ==========================================
+
     @Transactional
     public void saveOrUpdate(
             Schedule schedule,
             String airportCode,
             LocalDate date,
+            boolean outing,
             ExposureCalculationService.ExposureResult result,
             String weatherCondition
     ) {
@@ -43,6 +46,7 @@ public class ExposureRecordService {
                         )
                         .orElse(null);
 
+
         if (record == null) {
 
             record =
@@ -60,7 +64,10 @@ public class ExposureRecordService {
                             .averageUv(result.averageUv())
                             .sunlightEnd(result.sunlightEnd())
                             .sunlightMinutes(result.sunlightMinutes())
-                            .isOuting(schedule.isOuting())
+
+                            // 핵심: schedule.isOuting() 사용 X
+                            .isOuting(outing)
+
                             .estimatedExposureScore(
                                     result.estimatedExposureScore()
                             )
@@ -72,10 +79,13 @@ public class ExposureRecordService {
                             )
                             .build();
 
-            exposureRecordRepository.save(record);
+            exposureRecordRepository.save(
+                    record
+            );
 
             return;
         }
+
 
         record.updateCalculation(
                 airportCode,
@@ -87,19 +97,21 @@ public class ExposureRecordService {
                 result.averageUv(),
                 result.sunlightEnd(),
                 result.sunlightMinutes(),
-                schedule.isOuting(),
+
+                // 핵심
+                outing,
+
                 result.estimatedExposureScore(),
                 result.koreaComparison(),
                 weatherCondition
         );
     }
 
-    /**
-     * 비행 일정이 없는 소속공항 대기일
-     *
-     * schedule = null
-     * user + date 기준으로 기록
-     */
+
+    // ==========================================
+    // 일정 없는 날
+    // ==========================================
+
     @Transactional
     public void saveOrUpdateBaseDay(
             User user,
@@ -124,15 +136,13 @@ public class ExposureRecordService {
                         )
                         .orElse(null);
 
+
         if (record == null) {
 
             record =
                     ExposureRecord.builder()
                             .user(user)
-
-                            // 일정 없는 날이므로 null
                             .schedule(null)
-
                             .airportCode(airportCode)
                             .locationType(LocationType.ARRIVAL)
                             .uvIndex(result.maxUv())
@@ -156,10 +166,13 @@ public class ExposureRecordService {
                             )
                             .build();
 
-            exposureRecordRepository.save(record);
+            exposureRecordRepository.save(
+                    record
+            );
 
             return;
         }
+
 
         record.updateCalculation(
                 airportCode,
@@ -178,9 +191,32 @@ public class ExposureRecordService {
         );
     }
 
-    /**
-     * 일정 있는 날의 외출 상태 변경
-     */
+
+    // ==========================================
+    // 날짜별 외출 상태 동기화
+    // ==========================================
+
+    @Transactional
+    public void updateOutingByDate(
+            User user,
+            LocalDate date,
+            boolean outing
+    ) {
+
+        exposureRecordRepository
+                .findByUserAndDate(
+                        user,
+                        date
+                )
+                .forEach(record ->
+                        record.updateOuting(
+                                outing
+                        )
+                );
+    }
+
+
+    // 기존 코드 호환용
     @Transactional
     public void updateOuting(
             Schedule schedule,
@@ -196,9 +232,7 @@ public class ExposureRecordService {
                 );
     }
 
-    /**
-     * 일정 없는 날의 외출 상태 변경
-     */
+
     @Transactional
     public void updateBaseDayOuting(
             User user,

@@ -17,8 +17,7 @@ public class DailyOutingService {
 
     private final UserRepository userRepository;
     private final DailyOutingRepository dailyOutingRepository;
-
-    private final BaseDayExposureService baseDayExposureService;
+    private final ExposureRecordService exposureRecordService;
 
 
     @Transactional
@@ -37,10 +36,6 @@ public class DailyOutingService {
                         );
 
 
-        // ==========================================
-        // 1. DailyOuting 생성 / 조회
-        // ==========================================
-
         DailyOuting dailyOuting =
                 dailyOutingRepository
                         .findByUserAndDate(
@@ -56,42 +51,27 @@ public class DailyOutingService {
                         );
 
 
-        // ==========================================
-        // 2. 외출 상태 변경
-        // ==========================================
-
         dailyOuting.updateOuting(
                 outing
         );
 
-
-        // ==========================================
-        // 3. DailyOuting 저장
-        // ==========================================
 
         dailyOutingRepository.save(
                 dailyOuting
         );
 
 
-        // ==========================================
-        // 4. 과거 / 오늘이면 ExposureRecord 반영
-        // ==========================================
+        /*
+         * 월말 리포트가 읽는 ExposureRecord의
+         * isOuting 값도 동일하게 갱신
+         */
+        exposureRecordService
+                .updateOutingByDate(
+                        user,
+                        date,
+                        outing
+                );
 
-        if (!date.isAfter(LocalDate.now())) {
-
-            baseDayExposureService
-                    .createOrUpdate(
-                            user,
-                            date,
-                            outing
-                    );
-        }
-
-
-        // ==========================================
-        // 5. 응답
-        // ==========================================
 
         return new DailyOutingResponse(
                 date.toString(),

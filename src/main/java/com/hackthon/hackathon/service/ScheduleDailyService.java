@@ -9,10 +9,12 @@ import com.hackthon.hackathon.enums.BaseAirport;
 import com.hackthon.hackathon.repository.DailyOutingRepository;
 import com.hackthon.hackathon.repository.ScheduleRepository;
 import com.hackthon.hackathon.repository.UserRepository;
+import com.hackthon.hackathon.util.TimeZoneUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
@@ -47,14 +49,19 @@ public class ScheduleDailyService {
                                 )
                         );
 
+
         List<Schedule> schedules =
                 scheduleRepository
-                        .findByUserOrderByDepartureTimeAsc(user);
+                        .findByUserOrderByDepartureTimeAsc(
+                                user
+                        );
+
 
         String baseAirportCode =
                 convertBaseAirportToAirportCode(
                         user.getBaseAirport()
                 );
+
 
         Schedule schedule =
                 findScheduleForDate(
@@ -64,12 +71,7 @@ public class ScheduleDailyService {
                 );
 
 
-        /*
-         * 실제 비행 / 해외 레이오버 일정이 없는 날
-         *
-         * → 소속공항 대기일
-         * → scheduleId = null
-         */
+        // 일정 없는 날
         if (schedule == null) {
 
             return createBaseDayResponse(
@@ -78,7 +80,9 @@ public class ScheduleDailyService {
             );
         }
 
+
         return createResponse(
+                user,
                 schedule,
                 date
         );
@@ -86,27 +90,27 @@ public class ScheduleDailyService {
 
 
     // =====================================================
-    // 토글 API용
+    // 기존 schedule 기반 조회
     // =====================================================
 
     public ScheduleDailyResponse getDailyBySchedule(
             Schedule schedule
     ) {
 
-        LocalDate date =
-                schedule.getArrivalTime()
+        LocalDate arrivalLocalDate =
+                getArrivalLocalTime(
+                        schedule
+                )
                         .toLocalDate();
 
+
         return createResponse(
+                schedule.getUser(),
                 schedule,
-                date
+                arrivalLocalDate
         );
     }
 
-
-    // =====================================================
-    // 캘린더용
-    // =====================================================
 
     public ScheduleDailyResponse getDailyBySchedule(
             Schedule schedule,
@@ -114,6 +118,7 @@ public class ScheduleDailyService {
     ) {
 
         return createResponse(
+                schedule.getUser(),
                 schedule,
                 date
         );
@@ -121,7 +126,7 @@ public class ScheduleDailyService {
 
 
     // =====================================================
-    // 날짜에 해당하는 실제 비행 / 해외 레이오버 찾기
+    // 날짜에 해당하는 비행 / 레이오버 찾기
     // =====================================================
 
     private Schedule findScheduleForDate(
@@ -130,30 +135,34 @@ public class ScheduleDailyService {
             String baseAirportCode
     ) {
 
-        /*
-         * ==========================================
-         * 1. 실제 비행이 걸쳐 있는 날짜
-         * ==========================================
-         *
-         * 출발일 <= 조회일 <= 도착일
-         *
-         * 이 경우에는 소속공항 여부와 관계없이
-         * 실제 비행 일정이므로 Schedule 반환
-         */
+
+        // ------------------------------------------
+        // 실제 비행 일정
+        // ------------------------------------------
+
         Schedule flightSchedule =
                 schedules.stream()
                         .filter(schedule -> {
 
                             LocalDate departureDate =
-                                    schedule.getDepartureTime()
+                                    getDepartureLocalTime(
+                                            schedule
+                                    )
                                             .toLocalDate();
 
                             LocalDate arrivalDate =
-                                    schedule.getArrivalTime()
+                                    getArrivalLocalTime(
+                                            schedule
+                                    )
                                             .toLocalDate();
 
-                            return !date.isBefore(departureDate)
-                                    && !date.isAfter(arrivalDate);
+
+                            return !date.isBefore(
+                                    departureDate
+                            )
+                                    && !date.isAfter(
+                                    arrivalDate
+                            );
                         })
                         .min(
                                 Comparator.comparing(
@@ -162,52 +171,45 @@ public class ScheduleDailyService {
                         )
                         .orElse(null);
 
+
         if (flightSchedule != null) {
             return flightSchedule;
         }
 
 
-        /*
-         * ==========================================
-         * 2. 해외 레이오버
-         * ==========================================
-         *
-         * 도착 후
-         * 같은 공항에서 다음 출발편이 있기 전까지
-         *
-         * 단,
-         * 도착 공항이 사용자의 소속공항이면
-         * 레이오버가 아니라 대기일로 판단
-         */
+        // ------------------------------------------
+        // 레이오버
+        // ------------------------------------------
+
         for (Schedule current : schedules) {
 
             LocalDate arrivalDate =
-                    current.getArrivalTime()
+                    getArrivalLocalTime(
+                            current
+                    )
                             .toLocalDate();
 
-            if (date.isBefore(arrivalDate)) {
+
+            if (date.isBefore(
+                    arrivalDate
+            )) {
                 continue;
             }
 
 
             /*
-             * 핵심:
-             *
-             * SYD → ICN 도착 후
-             * ICN은 사용자의 소속공항이므로
-             * 그 이후 날짜를 레이오버로 잡지 않음.
+             * 소속공항으로 귀국한 경우
+             * 레이오버로 취급 X
              */
             if (current.getArrivalAirport()
-                    .equals(baseAirportCode)) {
+                    .equals(
+                            baseAirportCode
+                    )) {
 
                 continue;
             }
 
 
-            /*
-             * 현재 도착 공항에서 출발하는
-             * 가장 빠른 다음 일정 찾기
-             */
             Schedule nextDeparture =
                     schedules.stream()
                             .filter(next ->
@@ -229,54 +231,45 @@ public class ScheduleDailyService {
                             )
                             .orElse(null);
 
-            /*
-             * 귀국/다음 출발 일정이 없으면
-             * 레이오버 기간을 확정할 수 없으므로 제외
-             */
+
             if (nextDeparture == null) {
                 continue;
             }
 
 
             LocalDate nextDepartureDate =
-                    nextDeparture
-                            .getDepartureTime()
+                    getDepartureLocalTime(
+                            nextDeparture
+                    )
                             .toLocalDate();
 
 
-            /*
-             * 도착일 이후 ~ 다음 출발일 이전
-             *
-             * 예:
-             *
-             * 8/12 ICN → SYD
-             * 8/13 SYD 도착
-             * 8/14 SYD 체류
-             * 8/15 SYD → ICN
-             *
-             * 8/14 → current 반환
-             */
-            if (!date.isBefore(arrivalDate)
-                    && date.isBefore(nextDepartureDate)) {
+            if (!date.isBefore(
+                    arrivalDate
+            )
+                    && date.isBefore(
+                    nextDepartureDate
+            )) {
 
+                /*
+                 * Schedule 객체 자체는
+                 * 레이오버의 기준 비행편을 반환하지만,
+                 *
+                 * outing 상태는 아래 createResponse에서
+                 * date 기준 DailyOuting을 사용하므로
+                 * 날짜별로 독립적이다.
+                 */
                 return current;
             }
         }
 
 
-        /*
-         * ==========================================
-         * 비행도 아니고 해외 레이오버도 아님
-         * ==========================================
-         *
-         * → 소속공항 대기일
-         */
         return null;
     }
 
 
     // =====================================================
-    // 소속공항 대기일 응답
+    // 소속공항 대기일
     // =====================================================
 
     private ScheduleDailyResponse createBaseDayResponse(
@@ -284,25 +277,33 @@ public class ScheduleDailyService {
             LocalDate date
     ) {
 
+        /*
+         * 일정 없는 날 기본 INDOOR(false)
+         */
         boolean isOuting =
                 dailyOutingRepository
                         .findByUserAndDate(
                                 user,
                                 date
                         )
-                        .map(DailyOuting::isOuting)
+                        .map(
+                                DailyOuting::isOuting
+                        )
                         .orElse(false);
+
 
         String baseAirportCode =
                 convertBaseAirportToAirportCode(
                         user.getBaseAirport()
                 );
 
+
         ScheduleDailyResponse.LocationInfo baseInfo =
                 createLocationInfo(
                         baseAirportCode,
                         date
                 );
+
 
         return new ScheduleDailyResponse(
                 null,
@@ -323,6 +324,7 @@ public class ScheduleDailyService {
     // =====================================================
 
     private ScheduleDailyResponse createResponse(
+            User user,
             Schedule schedule,
             LocalDate date
     ) {
@@ -333,10 +335,30 @@ public class ScheduleDailyService {
                         date
                 );
 
+
         String route =
                 schedule.getDepartureAirport()
                         + " → "
                         + schedule.getArrivalAirport();
+
+
+        /*
+         * 핵심:
+         *
+         * 일정 있는 날은 DailyOuting이 없으면
+         * 기본 OUTING(true)
+         */
+        boolean isOuting =
+                dailyOutingRepository
+                        .findByUserAndDate(
+                                user,
+                                date
+                        )
+                        .map(
+                                DailyOuting::isOuting
+                        )
+                        .orElse(true);
+
 
         ScheduleDailyResponse.LocationInfo departureInfo =
                 null;
@@ -347,9 +369,6 @@ public class ScheduleDailyService {
 
         switch (flightStatus) {
 
-            /*
-             * 출발 전
-             */
             case "SCHEDULED" -> {
 
                 departureInfo =
@@ -360,11 +379,6 @@ public class ScheduleDailyService {
             }
 
 
-            /*
-             * 비행일
-             *
-             * 출발지 + 도착지 둘 다
-             */
             case "IN_FLIGHT" -> {
 
                 departureInfo =
@@ -372,6 +386,7 @@ public class ScheduleDailyService {
                                 schedule.getDepartureAirport(),
                                 date
                         );
+
 
                 arrivalInfo =
                         createLocationInfo(
@@ -381,9 +396,6 @@ public class ScheduleDailyService {
             }
 
 
-            /*
-             * 도착 후 / 해외 레이오버
-             */
             case "ARRIVED" -> {
 
                 arrivalInfo =
@@ -395,14 +407,29 @@ public class ScheduleDailyService {
         }
 
 
+        /*
+         * DB UTC → 각 공항 현지시간
+         */
+        LocalDateTime departureLocalTime =
+                getDepartureLocalTime(
+                        schedule
+                );
+
+
+        LocalDateTime arrivalLocalTime =
+                getArrivalLocalTime(
+                        schedule
+                );
+
+
         return new ScheduleDailyResponse(
                 schedule.getId(),
                 date.toString(),
                 route,
                 flightStatus,
-                schedule.isOuting(),
-                schedule.getDepartureTime(),
-                schedule.getArrivalTime(),
+                isOuting,
+                departureLocalTime,
+                arrivalLocalTime,
                 departureInfo,
                 arrivalInfo
         );
@@ -410,7 +437,7 @@ public class ScheduleDailyService {
 
 
     // =====================================================
-    // 조회 날짜 기준 비행 상태
+    // 비행 상태
     // =====================================================
 
     private String calculateFlightStatus(
@@ -419,41 +446,65 @@ public class ScheduleDailyService {
     ) {
 
         LocalDate departureDate =
-                schedule.getDepartureTime()
+                getDepartureLocalTime(
+                        schedule
+                )
                         .toLocalDate();
+
 
         LocalDate arrivalDate =
-                schedule.getArrivalTime()
+                getArrivalLocalTime(
+                        schedule
+                )
                         .toLocalDate();
 
 
-        /*
-         * 출발일
-         *
-         * 날짜 상세 화면에서는 비행일로 취급
-         */
-        if (date.equals(departureDate)) {
+        if (date.equals(
+                departureDate
+        )) {
             return "IN_FLIGHT";
         }
 
 
-        /*
-         * 도착일 및 이후
-         */
-        if (!date.isBefore(arrivalDate)) {
+        if (!date.isBefore(
+                arrivalDate
+        )) {
             return "ARRIVED";
         }
 
 
-        /*
-         * 출발 이전
-         */
         return "SCHEDULED";
     }
 
 
     // =====================================================
-    // 공항별 UV 정보 생성
+    // UTC → 현지시간
+    // =====================================================
+
+    private LocalDateTime getDepartureLocalTime(
+            Schedule schedule
+    ) {
+
+        return TimeZoneUtil.fromUtc(
+                schedule.getDepartureTime(),
+                schedule.getDepartureAirport()
+        );
+    }
+
+
+    private LocalDateTime getArrivalLocalTime(
+            Schedule schedule
+    ) {
+
+        return TimeZoneUtil.fromUtc(
+                schedule.getArrivalTime(),
+                schedule.getArrivalAirport()
+        );
+    }
+
+
+    // =====================================================
+    // 공항별 UV
     // =====================================================
 
     private ScheduleDailyResponse.LocationInfo createLocationInfo(
@@ -466,6 +517,7 @@ public class ScheduleDailyService {
                         airportCode
                 );
 
+
         List<ScheduleDailyResponse.UvPoint> graph =
                 createUvGraph(
                         weather,
@@ -473,11 +525,6 @@ public class ScheduleDailyService {
                 );
 
 
-        /*
-         * UV 데이터가 없는 날짜
-         *
-         * SAFE로 오판하지 않고 null 처리
-         */
         if (graph.isEmpty()) {
 
             return new ScheduleDailyResponse.LocationInfo(
@@ -503,10 +550,12 @@ public class ScheduleDailyService {
                         .max()
                         .orElse(0.0);
 
+
         String warningMessage =
                 createWarningMessage(
                         maxUv
                 );
+
 
         return new ScheduleDailyResponse.LocationInfo(
                 airportCode,
@@ -515,7 +564,9 @@ public class ScheduleDailyService {
                         date
                 ),
                 exposureCalculationService
-                        .calculateRiskLevel(maxUv),
+                        .calculateRiskLevel(
+                                maxUv
+                        ),
                 new ScheduleDailyResponse.UvDetail(
                         graph,
                         warningMessage
@@ -523,10 +574,6 @@ public class ScheduleDailyService {
         );
     }
 
-
-    // =====================================================
-    // UV 그래프 생성
-    // =====================================================
 
     private List<ScheduleDailyResponse.UvPoint> createUvGraph(
             WeatherResponse weather,
@@ -546,9 +593,11 @@ public class ScheduleDailyService {
                 weather.getHourly()
                         .getTime();
 
+
         List<Double> uvIndexes =
                 weather.getHourly()
                         .getUvIndex();
+
 
         int size =
                 Math.min(
@@ -558,21 +607,26 @@ public class ScheduleDailyService {
 
 
         return IntStream
-                .range(0, size)
+                .range(
+                        0,
+                        size
+                )
                 .mapToObj(i -> {
 
-                    java.time.LocalDateTime time =
-                            java.time.LocalDateTime
-                                    .parse(
-                                            times.get(i)
-                                    );
+                    LocalDateTime time =
+                            LocalDateTime.parse(
+                                    times.get(i)
+                            );
+
 
                     Double uv =
                             uvIndexes.get(i);
 
 
                     if (!time.toLocalDate()
-                            .equals(date)
+                            .equals(
+                                    date
+                            )
                             || uv == null) {
 
                         return null;
@@ -592,10 +646,6 @@ public class ScheduleDailyService {
     }
 
 
-    // =====================================================
-    // UV 경고 메시지
-    // =====================================================
-
     private String createWarningMessage(
             double maxUv
     ) {
@@ -604,17 +654,15 @@ public class ScheduleDailyService {
             return "자외선이 매우 강한 날입니다.";
         }
 
+
         if (maxUv >= 5) {
             return "자외선 노출에 주의가 필요합니다.";
         }
 
+
         return "자외선 위험이 낮은 편입니다.";
     }
 
-
-    // =====================================================
-    // 소속공항 → IATA
-    // =====================================================
 
     private String convertBaseAirportToAirportCode(
             BaseAirport baseAirport
@@ -627,11 +675,15 @@ public class ScheduleDailyService {
             );
         }
 
+
         return switch (baseAirport) {
+
             case INCHEON -> "ICN";
             case GIMPO -> "GMP";
         };
     }
+
+
     private String calculateKoreaTimeDifference(
             String airportCode,
             LocalDate date
@@ -639,37 +691,61 @@ public class ScheduleDailyService {
 
         String timezone =
                 com.hackthon.hackathon.util.AirportLocationMapper
-                        .getAirportInfo(airportCode)
+                        .getAirportInfo(
+                                airportCode
+                        )
                         .timezone();
 
+
         java.time.ZoneId koreaZone =
-                java.time.ZoneId.of("Asia/Seoul");
+                java.time.ZoneId.of(
+                        "Asia/Seoul"
+                );
+
 
         java.time.ZoneId localZone =
-                java.time.ZoneId.of(timezone);
+                java.time.ZoneId.of(
+                        timezone
+                );
+
 
         java.time.ZonedDateTime koreaTime =
-                date.atStartOfDay(koreaZone);
+                date.atStartOfDay(
+                        koreaZone
+                );
+
 
         java.time.ZonedDateTime localTime =
-                date.atStartOfDay(localZone);
+                date.atStartOfDay(
+                        localZone
+                );
+
 
         int koreaOffsetSeconds =
                 koreaTime.getOffset()
                         .getTotalSeconds();
 
+
         int localOffsetSeconds =
                 localTime.getOffset()
                         .getTotalSeconds();
 
+
         int differenceHours =
-                (localOffsetSeconds - koreaOffsetSeconds)
+                (localOffsetSeconds
+                        - koreaOffsetSeconds)
                         / 3600;
 
+
         if (differenceHours > 0) {
-            return "+" + differenceHours + "시간";
+
+            return "+"
+                    + differenceHours
+                    + "시간";
         }
 
-        return differenceHours + "시간";
+
+        return differenceHours
+                + "시간";
     }
 }
