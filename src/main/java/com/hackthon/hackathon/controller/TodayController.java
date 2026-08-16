@@ -97,7 +97,7 @@ public class TodayController {
             availableWindow =
                     sunlightWindowService
                             .calculateBaseDayAvailableWindow(
-                                    LocalDate.now()
+                                    scheduleInfo.localDate()
                             );
 
         } else {
@@ -195,7 +195,7 @@ public class TodayController {
                     .saveOrUpdateBaseDay(
                             user,
                             airportCode,
-                            LocalDate.now(),
+                            scheduleInfo.localDate(),
                             scheduleInfo.outing(),
                             exposureResult,
                             homeResponse.weatherCondition()
@@ -212,7 +212,7 @@ public class TodayController {
                         .saveOrUpdate(
                                 currentSchedule,
                                 airportCode,
-                                LocalDate.now(),
+                                scheduleInfo.localDate(),
                                 exposureResult,
                                 homeResponse.weatherCondition()
                         );
