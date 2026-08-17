@@ -13,7 +13,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Comparator;
 import java.util.List;
 
 @Service
@@ -113,6 +115,10 @@ public class ScheduleService {
 
         scheduleRepository.saveAll(
                 schedules
+        );
+
+        removeBaseDayRecordsCoveredBySchedules(
+                user
         );
 
 
@@ -231,6 +237,110 @@ public class ScheduleService {
                 schedule.getId(),
                 "비행 일정이 수정되었어요."
         );
+    }
+
+    /*
+     * 일정 등록 전에 날짜 상세 조회로 생성된 schedule_id = null
+     * 소속공항 기록을 실제 비행일/레이오버 날짜에서 제거한다.
+     */
+    private void removeBaseDayRecordsCoveredBySchedules(
+            User user
+    ) {
+        List<Schedule> allSchedules =
+                scheduleRepository
+                        .findByUserOrderByDepartureTimeAsc(user);
+
+        for (Schedule current : allSchedules) {
+            LocalDate departureDate =
+                    TimeZoneUtil.fromUtc(
+                            current.getDepartureTime(),
+                            current.getDepartureAirport()
+                    ).toLocalDate();
+
+            LocalDate arrivalDate =
+                    TimeZoneUtil.fromUtc(
+                            current.getArrivalTime(),
+                            current.getArrivalAirport()
+                    ).toLocalDate();
+
+            deleteBaseRecordsBetween(
+                    user,
+                    departureDate,
+                    arrivalDate
+            );
+
+            // 소속공항으로 돌아온 뒤의 날짜는 레이오버가 아니다.
+            if (isKoreanBaseAirport(
+                    current.getArrivalAirport()
+            )) {
+                continue;
+            }
+
+            Schedule nextDeparture =
+                    allSchedules.stream()
+                            .filter(next ->
+                                    next.getDepartureTime()
+                                            .isAfter(
+                                                    current.getArrivalTime()
+                                            )
+                            )
+                            .filter(next ->
+                                    next.getDepartureAirport()
+                                            .equals(
+                                                    current.getArrivalAirport()
+                                            )
+                            )
+                            .min(
+                                    Comparator.comparing(
+                                            Schedule::getDepartureTime
+                                    )
+                            )
+                            .orElse(null);
+
+            if (nextDeparture == null) {
+                continue;
+            }
+
+            LocalDate nextDepartureDate =
+                    TimeZoneUtil.fromUtc(
+                            nextDeparture.getDepartureTime(),
+                            nextDeparture.getDepartureAirport()
+                    ).toLocalDate();
+
+            deleteBaseRecordsBetween(
+                    user,
+                    arrivalDate,
+                    nextDepartureDate.minusDays(1)
+            );
+        }
+    }
+
+    private void deleteBaseRecordsBetween(
+            User user,
+            LocalDate startDate,
+            LocalDate endDate
+    ) {
+        if (endDate.isBefore(startDate)) {
+            return;
+        }
+
+        for (LocalDate date = startDate;
+             !date.isAfter(endDate);
+             date = date.plusDays(1)) {
+
+            exposureRecordService
+                    .deleteBaseDayRecord(
+                            user,
+                            date
+                    );
+        }
+    }
+
+    private boolean isKoreanBaseAirport(
+            String airportCode
+    ) {
+        return "ICN".equals(airportCode)
+                || "GMP".equals(airportCode);
     }
 
 

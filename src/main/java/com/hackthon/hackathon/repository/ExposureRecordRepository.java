@@ -46,6 +46,11 @@ public interface ExposureRecordRepository
             LocalDate date
     );
 
+    void deleteByUserAndDateAndScheduleIsNull(
+            User user,
+            LocalDate date
+    );
+
     void deleteBySchedule(
             Schedule schedule
     );

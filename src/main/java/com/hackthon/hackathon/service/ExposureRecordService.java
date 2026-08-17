@@ -40,6 +40,13 @@ public class ExposureRecordService {
             return;
         }
 
+        // 실제 일정일이면 기존 소속공항 대기일 기록을 제거한다.
+        exposureRecordRepository
+                .deleteByUserAndDateAndScheduleIsNull(
+                        schedule.getUser(),
+                        date
+                );
+
         ExposureRecord record =
                 exposureRecordRepository
                         .findByScheduleAndDateAndLocationType(
@@ -127,6 +134,19 @@ public class ExposureRecordService {
 
         if (result.sunlightStart() == null
                 || result.sunlightEnd() == null) {
+            return;
+        }
+
+        // 같은 날짜에 실제 일정 기록이 있으면 대기일 기록을 만들지 않는다.
+        boolean hasScheduleRecord =
+                exposureRecordRepository
+                        .findByUserAndDate(user, date)
+                        .stream()
+                        .anyMatch(record ->
+                                record.getSchedule() != null
+                        );
+
+        if (hasScheduleRecord) {
             return;
         }
 
@@ -289,6 +309,18 @@ public class ExposureRecordService {
                         record.updateOuting(
                                 outing
                         )
+                );
+    }
+
+    @Transactional
+    public void deleteBaseDayRecord(
+            User user,
+            LocalDate date
+    ) {
+        exposureRecordRepository
+                .deleteByUserAndDateAndScheduleIsNull(
+                        user,
+                        date
                 );
     }
 

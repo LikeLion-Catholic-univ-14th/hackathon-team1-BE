@@ -10,6 +10,7 @@ import com.hackthon.hackathon.enums.RiskLevel;
 import com.hackthon.hackathon.repository.DailyOutingRepository;
 import com.hackthon.hackathon.repository.ScheduleRepository;
 import com.hackthon.hackathon.repository.UserRepository;
+import com.hackthon.hackathon.util.TimeZoneUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -264,12 +265,16 @@ public class ScheduleCalendarService {
                         .filter(schedule -> {
 
                             LocalDate departureDate =
-                                    schedule.getDepartureTime()
-                                            .toLocalDate();
+                                    TimeZoneUtil.fromUtc(
+                                            schedule.getDepartureTime(),
+                                            schedule.getDepartureAirport()
+                                    ).toLocalDate();
 
                             LocalDate arrivalDate =
-                                    schedule.getArrivalTime()
-                                            .toLocalDate();
+                                    TimeZoneUtil.fromUtc(
+                                            schedule.getArrivalTime(),
+                                            schedule.getArrivalAirport()
+                                    ).toLocalDate();
 
                             return !date.isBefore(departureDate)
                                     && !date.isAfter(arrivalDate);
@@ -298,8 +303,10 @@ public class ScheduleCalendarService {
         for (Schedule current : schedules) {
 
             LocalDate arrivalDate =
-                    current.getArrivalTime()
-                            .toLocalDate();
+                    TimeZoneUtil.fromUtc(
+                            current.getArrivalTime(),
+                            current.getArrivalAirport()
+                    ).toLocalDate();
 
 
             if (date.isBefore(arrivalDate)) {
@@ -316,8 +323,9 @@ public class ScheduleCalendarService {
              *
              * → 8/16은 이전 schedule에 포함하지 않음.
              */
-            if (current.getArrivalAirport()
-                    .equals(baseAirportCode)) {
+            if (isKoreanBaseAirport(
+                    current.getArrivalAirport()
+            )) {
 
                 continue;
             }
@@ -351,9 +359,10 @@ public class ScheduleCalendarService {
 
 
             LocalDate nextDepartureDate =
-                    nextDeparture
-                            .getDepartureTime()
-                            .toLocalDate();
+                    TimeZoneUtil.fromUtc(
+                            nextDeparture.getDepartureTime(),
+                            nextDeparture.getDepartureAirport()
+                    ).toLocalDate();
 
 
             if (!date.isBefore(arrivalDate)
@@ -391,5 +400,12 @@ public class ScheduleCalendarService {
 
             case GIMPO -> "GMP";
         };
+    }
+
+    private boolean isKoreanBaseAirport(
+            String airportCode
+    ) {
+        return "ICN".equalsIgnoreCase(airportCode.trim())
+                || "GMP".equalsIgnoreCase(airportCode.trim());
     }
 }

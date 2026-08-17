@@ -255,10 +255,9 @@ public class ScheduleDailyService {
              * 소속공항으로 귀국한 경우
              * 레이오버 X
              */
-            if (current.getArrivalAirport()
-                    .equals(
-                            baseAirportCode
-                    )) {
+            if (isKoreanBaseAirport(
+                    current.getArrivalAirport()
+            )) {
 
                 continue;
             }
@@ -1212,6 +1211,17 @@ public class ScheduleDailyService {
             case GIMPO ->
                     "GMP";
         };
+    }
+
+    /*
+     * 국내 베이스 복귀 판정에서는 ICN과 GMP를 동일한 국내 복귀로 본다.
+     * 사용자의 소속이 GMP여도 ICN 도착 후를 해외 레이오버로 처리하지 않는다.
+     */
+    private boolean isKoreanBaseAirport(
+            String airportCode
+    ) {
+        return "ICN".equalsIgnoreCase(airportCode.trim())
+                || "GMP".equalsIgnoreCase(airportCode.trim());
     }
 
 
