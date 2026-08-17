@@ -296,10 +296,9 @@ public class TodayService {
                                         )
                         )
                         .filter(schedule ->
-                                !schedule.getArrivalAirport()
-                                        .equals(
-                                                baseAirportCode
-                                        )
+                                !isKoreaBaseAirport(
+                                        schedule.getArrivalAirport()
+                                )
                         )
                         .filter(schedule ->
                                 hasFutureDepartureFromAirport(
@@ -536,5 +535,12 @@ public class TodayService {
                 );
 
         return info.schedule();
+    }
+    private boolean isKoreaBaseAirport(
+            String airportCode
+    ) {
+
+        return "ICN".equals(airportCode)
+                || "GMP".equals(airportCode);
     }
 }
