@@ -234,39 +234,5 @@ public class ScheduleService {
     }
 
 
-    // ==========================================
-    // 솔루션 적용
-    // ==========================================
 
-    @Transactional
-    public void applySolution(
-            Long scheduleId,
-            SolutionApplyRequest request
-    ) {
-
-        Schedule schedule =
-                scheduleRepository.findById(scheduleId)
-                        .orElseThrow(() ->
-                                new IllegalArgumentException(
-                                        "해당 일정을 찾을 수 없습니다."
-                                )
-                        );
-
-        Sunscreen sunscreen =
-                sunscreenRepository
-                        .findById(
-                                request.sunscreenId()
-                        )
-                        .orElseThrow(() ->
-                                new IllegalArgumentException(
-                                        "해당 선크림을 찾을 수 없습니다."
-                                )
-                        );
-
-
-        schedule.applySunscreen(
-                sunscreen,
-                request.isApplied()
-        );
-    }
 }
