@@ -1,6 +1,7 @@
 package com.hackthon.hackathon.controller;
 
 import com.hackthon.hackathon.dto.SolutionAiResponse;
+import com.hackthon.hackathon.dto.SolutionGenerateRequest;
 import com.hackthon.hackathon.dto.WeatherResponse;
 import com.hackthon.hackathon.dto.home.HomeUvResponse;
 import com.hackthon.hackathon.dto.today.TodayResponse;
@@ -10,10 +11,7 @@ import com.hackthon.hackathon.repository.UserRepository;
 import com.hackthon.hackathon.service.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PatchMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 import com.hackthon.hackathon.dto.today.TodayOutingRequest;
 import com.hackthon.hackathon.dto.today.TodayOutingResponse;
 import java.time.LocalDate;
@@ -71,6 +69,12 @@ public class TodayController {
 
         String airportCode =
                 scheduleInfo.airportCode();
+        System.out.println(
+                "[TODAY] baseAirport="
+                        + user.getBaseAirport()
+                        + ", airportCode="
+                        + airportCode
+        );
 
 
         // =========================
@@ -518,5 +522,116 @@ public class TodayController {
 
             default -> "UNKNOWN";
         };
+    }
+    @PostMapping("/apply")
+    public ResponseEntity<SolutionAiResponse> generate(
+            @RequestBody SolutionGenerateRequest request
+    ) {
+
+        Long userId = 1L;
+
+
+        TodayService.TodayScheduleInfo scheduleInfo =
+                todayService.getTodayScheduleInfo(
+                        userId
+                );
+
+
+        String airportCode =
+                scheduleInfo.airportCode();
+
+
+        var weather =
+                weatherService.getWeather(
+                        airportCode
+                );
+
+
+        SunlightWindowService.AvailableWindow availableWindow;
+
+
+        if (scheduleInfo.baseDay()) {
+
+            availableWindow =
+                    sunlightWindowService
+                            .calculateBaseDayAvailableWindow(
+                                    scheduleInfo.localDate()
+                            );
+
+        } else {
+
+            availableWindow =
+                    sunlightWindowService
+                            .calculateAvailableWindow(
+                                    scheduleInfo.arrivalTime(),
+                                    scheduleInfo.nextDepartureTime(),
+                                    scheduleInfo.quickTurn()
+                            )
+                            .orElse(null);
+        }
+
+
+        List<SunlightWindowService.SunlightWindow> windows =
+                availableWindow == null
+                        ? List.of()
+                        : sunlightWindowService
+                        .calculateSunlightWindows(
+                                availableWindow,
+                                weather
+                        );
+
+
+        var seoulWeather =
+                weatherService.getSeoulWeather();
+
+
+        int sunlightMinutes =
+                windows.stream()
+                        .mapToInt(window ->
+                                (int) window.minutes()
+                        )
+                        .sum();
+
+
+        double seoulComparableExposureScore =
+                exposureCalculationService
+                        .calculateSeoulComparableExposureScore(
+                                seoulWeather,
+                                sunlightMinutes
+                        );
+
+
+        var exposureResult =
+                exposureCalculationService
+                        .calculateExposure(
+                                windows,
+                                weather,
+                                seoulComparableExposureScore
+                        );
+
+
+        HomeUvResponse homeResponse =
+                homeUvService.createTestHomeUv(
+                        userId,
+                        airportCode,
+                        exposureResult,
+                        windows
+                );
+
+
+        SolutionAiResponse response =
+                solutionAiService
+                        .generateSolutionForSunscreen(
+                                userId,
+                                request.sunscreenId(),
+                                homeResponse.uvIndex(),
+                                homeResponse.sunlightMinutes(),
+                                homeResponse.weatherCondition()
+                        );
+
+
+        return ResponseEntity.ok(
+                response
+        );
     }
 }

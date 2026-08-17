@@ -347,4 +347,134 @@ public class SolutionAiService {
             );
         }
     }
+    public SolutionAiResponse generateSolutionForSunscreen(
+            Long userId,
+            Long sunscreenId,
+            double uvIndex,
+            int sunlightMinutes,
+            String weatherCondition
+    ) {
+
+        User user =
+                userRepository.findById(userId)
+                        .orElseThrow(() ->
+                                new IllegalArgumentException(
+                                        "해당 유저를 찾을 수 없습니다."
+                                )
+                        );
+
+        List<UserSunscreenService.SunscreenProtectionResponse> sunscreens =
+                userSunscreenService
+                        .calculateUserSunscreens(
+                                userId,
+                                uvIndex
+                        )
+                        .stream()
+                        .filter(item ->
+                                item.sunscreenId()
+                                        .equals(
+                                                sunscreenId
+                                        )
+                        )
+                        .toList();
+
+
+        if (sunscreens.isEmpty()) {
+
+            throw new IllegalArgumentException(
+                    "해당 사용자의 선크림을 찾을 수 없습니다."
+            );
+        }
+
+
+        List<ProcedureHistory> procedures =
+                procedureHistoryRepository
+                        .findByUserId(
+                                userId
+                        );
+
+
+        boolean hasProcedureHistory =
+                !procedures.isEmpty();
+
+
+        boolean procedureWithinOneMonth =
+                procedures.stream()
+                        .anyMatch(
+                                ProcedureHistory::isRecentOneMonth
+                        );
+
+
+        String procedureDetails =
+                procedures.isEmpty()
+                        ? "없음"
+                        : procedures.stream()
+                        .map(
+                                ProcedureHistory::getName
+                        )
+                        .collect(
+                                Collectors.joining(", ")
+                        );
+
+
+        String prompt =
+                createPrompt(
+                        user,
+                        hasProcedureHistory,
+                        procedureDetails,
+                        procedureWithinOneMonth,
+                        uvIndex,
+                        sunlightMinutes,
+                        weatherCondition,
+                        sunscreens
+                );
+
+
+        Map<String, Object> requestBody =
+                Map.of(
+                        "model",
+                        "gpt-4.1-mini",
+
+                        "input",
+                        List.of(
+                                Map.of(
+                                        "role",
+                                        "user",
+
+                                        "content",
+                                        List.of(
+                                                Map.of(
+                                                        "type",
+                                                        "input_text",
+
+                                                        "text",
+                                                        prompt
+                                                )
+                                        )
+                                )
+                        )
+                );
+
+
+        String response =
+                restClient.post()
+                        .uri(
+                                "/responses"
+                        )
+                        .contentType(
+                                MediaType.APPLICATION_JSON
+                        )
+                        .body(
+                                requestBody
+                        )
+                        .retrieve()
+                        .body(
+                                String.class
+                        );
+
+
+        return parseResponse(
+                response
+        );
+    }
 }

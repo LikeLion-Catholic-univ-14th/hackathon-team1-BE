@@ -17,7 +17,7 @@ public class AirportLocationMapper {
             )),
 
             Map.entry("GMP", new AirportInfo(
-                    "서울",
+                    "김포",
                     "대한민국",
                     37.5583,
                     126.7906,
