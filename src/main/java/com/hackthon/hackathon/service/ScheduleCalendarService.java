@@ -5,12 +5,10 @@ import com.hackthon.hackathon.dto.ScheduleDailyResponse;
 import com.hackthon.hackathon.entity.DailyOuting;
 import com.hackthon.hackathon.entity.Schedule;
 import com.hackthon.hackathon.entity.User;
-import com.hackthon.hackathon.enums.BaseAirport;
 import com.hackthon.hackathon.enums.RiskLevel;
 import com.hackthon.hackathon.repository.DailyOutingRepository;
 import com.hackthon.hackathon.repository.ScheduleRepository;
 import com.hackthon.hackathon.repository.UserRepository;
-import com.hackthon.hackathon.util.TimeZoneUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -18,7 +16,6 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 
 @Slf4j
@@ -30,6 +27,7 @@ public class ScheduleCalendarService {
     private final ScheduleRepository scheduleRepository;
     private final ScheduleDailyService scheduleDailyService;
     private final DailyOutingRepository dailyOutingRepository;
+    private final ScheduleDateResolverService scheduleDateResolverService;
 
 
     public CalendarResponse getCalendar(
@@ -54,11 +52,6 @@ public class ScheduleCalendarService {
                                 user
                         );
 
-        String baseAirportCode =
-                convertBaseAirportToAirportCode(
-                        user.getBaseAirport()
-                );
-
         List<CalendarResponse.DayInfo> days =
                 new ArrayList<>();
 
@@ -72,10 +65,9 @@ public class ScheduleCalendarService {
 
 
             Schedule schedule =
-                    findScheduleForDate(
+                    scheduleDateResolverService.findScheduleForDate(
                             schedules,
-                            date,
-                            baseAirportCode
+                            date
                     );
 
 
@@ -168,7 +160,16 @@ public class ScheduleCalendarService {
                 String status;
 
 
-                if (!schedule.isOuting()) {
+                boolean isOuting =
+                        dailyOutingRepository
+                                .findByUserAndDate(
+                                        user,
+                                        date
+                                )
+                                .map(DailyOuting::isOuting)
+                                .orElse(true);
+
+                if (!isOuting) {
 
                     status = "INDOOR";
 
@@ -245,167 +246,4 @@ public class ScheduleCalendarService {
     }
 
 
-    // ==========================================
-    // 날짜 기준 일정 / 해외 레이오버 판정
-    // ==========================================
-
-    private Schedule findScheduleForDate(
-            List<Schedule> schedules,
-            LocalDate date,
-            String baseAirportCode
-    ) {
-
-        /*
-         * 1. 실제 비행일
-         *
-         * departureDate <= date <= arrivalDate
-         */
-        Schedule flightSchedule =
-                schedules.stream()
-                        .filter(schedule -> {
-
-                            LocalDate departureDate =
-                                    TimeZoneUtil.fromUtc(
-                                            schedule.getDepartureTime(),
-                                            schedule.getDepartureAirport()
-                                    ).toLocalDate();
-
-                            LocalDate arrivalDate =
-                                    TimeZoneUtil.fromUtc(
-                                            schedule.getArrivalTime(),
-                                            schedule.getArrivalAirport()
-                                    ).toLocalDate();
-
-                            return !date.isBefore(departureDate)
-                                    && !date.isAfter(arrivalDate);
-                        })
-                        .min(
-                                Comparator.comparing(
-                                        Schedule::getDepartureTime
-                                )
-                        )
-                        .orElse(null);
-
-
-        if (flightSchedule != null) {
-            return flightSchedule;
-        }
-
-
-        /*
-         * 2. 해외 레이오버
-         *
-         * 도착 후 같은 공항에서 출발하는
-         * 다음 비행 직전까지.
-         *
-         * 단, 소속공항 도착 후는 레이오버가 아니라 대기일.
-         */
-        for (Schedule current : schedules) {
-
-            LocalDate arrivalDate =
-                    TimeZoneUtil.fromUtc(
-                            current.getArrivalTime(),
-                            current.getArrivalAirport()
-                    ).toLocalDate();
-
-
-            if (date.isBefore(arrivalDate)) {
-                continue;
-            }
-
-
-            /*
-             * 귀국 후 소속공항 대기일
-             *
-             * 예:
-             * SYD → ICN 8/15 도착
-             * 8/16 일정 없음
-             *
-             * → 8/16은 이전 schedule에 포함하지 않음.
-             */
-            if (isKoreanBaseAirport(
-                    current.getArrivalAirport()
-            )) {
-
-                continue;
-            }
-
-
-            Schedule nextDeparture =
-                    schedules.stream()
-                            .filter(next ->
-                                    next.getDepartureTime()
-                                            .isAfter(
-                                                    current.getArrivalTime()
-                                            )
-                            )
-                            .filter(next ->
-                                    next.getDepartureAirport()
-                                            .equals(
-                                                    current.getArrivalAirport()
-                                            )
-                            )
-                            .min(
-                                    Comparator.comparing(
-                                            Schedule::getDepartureTime
-                                    )
-                            )
-                            .orElse(null);
-
-
-            if (nextDeparture == null) {
-                continue;
-            }
-
-
-            LocalDate nextDepartureDate =
-                    TimeZoneUtil.fromUtc(
-                            nextDeparture.getDepartureTime(),
-                            nextDeparture.getDepartureAirport()
-                    ).toLocalDate();
-
-
-            if (!date.isBefore(arrivalDate)
-                    && date.isBefore(nextDepartureDate)) {
-
-                return current;
-            }
-        }
-
-
-        // 실제 비행도 해외 레이오버도 없음
-        return null;
-    }
-
-
-    // ==========================================
-    // 소속공항 → IATA
-    // ==========================================
-
-    private String convertBaseAirportToAirportCode(
-            BaseAirport baseAirport
-    ) {
-
-        if (baseAirport == null) {
-
-            throw new IllegalStateException(
-                    "사용자의 소속 공항이 등록되어 있지 않습니다."
-            );
-        }
-
-
-        return switch (baseAirport) {
-
-            case INCHEON -> "ICN";
-
-            case GIMPO -> "GMP";
-        };
-    }
-
-    private boolean isKoreanBaseAirport(
-            String airportCode
-    ) {
-        return "ICN".equalsIgnoreCase(airportCode.trim())
-                || "GMP".equalsIgnoreCase(airportCode.trim());
-    }
 }

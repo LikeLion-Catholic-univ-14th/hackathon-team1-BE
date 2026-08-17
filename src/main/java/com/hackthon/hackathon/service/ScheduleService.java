@@ -138,37 +138,6 @@ public class ScheduleService {
 
 
     // ==========================================
-    // 외출 여부 수정
-    // ==========================================
-
-    @Transactional
-    public Schedule updateOuting(
-            Long scheduleId,
-            boolean outing
-    ) {
-
-        Schedule schedule =
-                scheduleRepository.findById(scheduleId)
-                        .orElseThrow(() ->
-                                new IllegalArgumentException(
-                                        "해당 일정을 찾을 수 없습니다."
-                                )
-                        );
-
-        schedule.updateOuting(
-                outing
-        );
-
-        exposureRecordService.updateOuting(
-                schedule,
-                outing
-        );
-
-        return schedule;
-    }
-
-
-    // ==========================================
     // 일정 수정
     // ==========================================
 

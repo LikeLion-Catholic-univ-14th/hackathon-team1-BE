@@ -35,12 +35,6 @@ public interface ExposureRecordRepository
     );
 
     List<ExposureRecord>
-    findBySchedule(
-            Schedule schedule
-    );
-
-    // 추가
-    List<ExposureRecord>
     findByUserAndDate(
             User user,
             LocalDate date

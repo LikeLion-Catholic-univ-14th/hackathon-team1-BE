@@ -15,7 +15,6 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.IntStream;
@@ -34,6 +33,7 @@ public class ScheduleDailyService {
     // 추가
     private final SunlightWindowService sunlightWindowService;
     private final ExposureRecordService exposureRecordService;
+    private final ScheduleDateResolverService scheduleDateResolverService;
 
 
     // =====================================================
@@ -68,10 +68,9 @@ public class ScheduleDailyService {
 
 
         Schedule schedule =
-                findScheduleForDate(
+                scheduleDateResolverService.findScheduleForDate(
                         schedules,
-                        date,
-                        baseAirportCode
+                        date
                 );
 
 
@@ -179,126 +178,6 @@ public class ScheduleDailyService {
 
 
     // =====================================================
-    // 날짜에 해당하는 비행 / 레이오버 찾기
-    // =====================================================
-
-    private Schedule findScheduleForDate(
-            List<Schedule> schedules,
-            LocalDate date,
-            String baseAirportCode
-    ) {
-
-
-        // ------------------------------------------
-        // 실제 비행 일정
-        // ------------------------------------------
-
-        Schedule flightSchedule =
-                schedules.stream()
-                        .filter(schedule -> {
-
-                            LocalDate departureDate =
-                                    getDepartureLocalTime(
-                                            schedule
-                                    )
-                                            .toLocalDate();
-
-
-                            LocalDate arrivalDate =
-                                    getArrivalLocalTime(
-                                            schedule
-                                    )
-                                            .toLocalDate();
-
-
-                            return !date.isBefore(
-                                    departureDate
-                            )
-                                    && !date.isAfter(
-                                    arrivalDate
-                            );
-                        })
-                        .min(
-                                Comparator.comparing(
-                                        Schedule::getDepartureTime
-                                )
-                        )
-                        .orElse(null);
-
-
-        if (flightSchedule != null) {
-            return flightSchedule;
-        }
-
-
-        // ------------------------------------------
-        // 레이오버
-        // ------------------------------------------
-
-        for (Schedule current : schedules) {
-
-            LocalDate arrivalDate =
-                    getArrivalLocalTime(
-                            current
-                    )
-                            .toLocalDate();
-
-
-            if (date.isBefore(
-                    arrivalDate
-            )) {
-                continue;
-            }
-
-
-            /*
-             * 소속공항으로 귀국한 경우
-             * 레이오버 X
-             */
-            if (isKoreanBaseAirport(
-                    current.getArrivalAirport()
-            )) {
-
-                continue;
-            }
-
-
-            Schedule nextDeparture =
-                    findNextDeparture(
-                            schedules,
-                            current
-                    );
-
-
-            if (nextDeparture == null) {
-                continue;
-            }
-
-
-            LocalDate nextDepartureDate =
-                    getDepartureLocalTime(
-                            nextDeparture
-                    )
-                            .toLocalDate();
-
-
-            if (!date.isBefore(
-                    arrivalDate
-            )
-                    && date.isBefore(
-                    nextDepartureDate
-            )) {
-
-                return current;
-            }
-        }
-
-
-        return null;
-    }
-
-
-    // =====================================================
     // 다음 출발편 찾기
     // =====================================================
 
@@ -306,30 +185,11 @@ public class ScheduleDailyService {
             List<Schedule> schedules,
             Schedule current
     ) {
-
-        return schedules.stream()
-
-                .filter(next ->
-                        next.getDepartureTime()
-                                .isAfter(
-                                        current.getArrivalTime()
-                                )
-                )
-
-                .filter(next ->
-                        next.getDepartureAirport()
-                                .equals(
-                                        current.getArrivalAirport()
-                                )
-                )
-
-                .min(
-                        Comparator.comparing(
-                                Schedule::getDepartureTime
-                        )
-                )
-
-                .orElse(null);
+        return scheduleDateResolverService
+                .findNextDeparture(
+                        schedules,
+                        current
+                );
     }
 
 
@@ -1211,17 +1071,6 @@ public class ScheduleDailyService {
             case GIMPO ->
                     "GMP";
         };
-    }
-
-    /*
-     * 국내 베이스 복귀 판정에서는 ICN과 GMP를 동일한 국내 복귀로 본다.
-     * 사용자의 소속이 GMP여도 ICN 도착 후를 해외 레이오버로 처리하지 않는다.
-     */
-    private boolean isKoreanBaseAirport(
-            String airportCode
-    ) {
-        return "ICN".equalsIgnoreCase(airportCode.trim())
-                || "GMP".equalsIgnoreCase(airportCode.trim());
     }
 
 

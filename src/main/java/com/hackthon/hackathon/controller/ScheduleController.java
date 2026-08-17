@@ -1,7 +1,6 @@
 package com.hackthon.hackathon.controller;
 
 import com.hackthon.hackathon.dto.*;
-import com.hackthon.hackathon.entity.Schedule;
 import com.hackthon.hackathon.entity.User;
 import com.hackthon.hackathon.repository.UserRepository;
 import com.hackthon.hackathon.service.ExposureRecordService;
@@ -14,7 +13,6 @@ import org.springframework.web.bind.annotation.*;
 
 
 import java.time.LocalDate;
-import java.util.List;
 
 @RestController
 @RequiredArgsConstructor
@@ -55,29 +53,6 @@ public class ScheduleController {
                 )
         );
     }
-    @PatchMapping("/{scheduleId}/outing")
-    public ResponseEntity<ScheduleDailyResponse> updateOuting(
-            @PathVariable Long scheduleId,
-            @RequestBody ScheduleOutingRequest request
-    ) {
-
-        Schedule schedule =
-                scheduleService.updateOuting(
-                        scheduleId,
-                        request.outing()
-                );
-
-        ScheduleDailyResponse response =
-                scheduleDailyService
-                        .getDailyBySchedule(
-                                schedule
-                        );
-
-        return ResponseEntity.ok(
-                response
-        );
-    }
-
     @PatchMapping("/{scheduleId}")
     public ResponseEntity<ScheduleUpdateResponse> updateSchedule(
             @PathVariable Long scheduleId,

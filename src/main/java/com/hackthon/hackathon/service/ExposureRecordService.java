@@ -275,43 +275,6 @@ public class ExposureRecordService {
     }
 
 
-    // 기존 코드 호환용
-    @Transactional
-    public void updateOuting(
-            Schedule schedule,
-            boolean outing
-    ) {
-
-        exposureRecordRepository
-                .findBySchedule(schedule)
-                .forEach(record ->
-                        record.updateOuting(
-                                outing
-                        )
-                );
-    }
-
-
-    @Transactional
-    public void updateBaseDayOuting(
-            User user,
-            LocalDate date,
-            boolean outing
-    ) {
-
-        exposureRecordRepository
-                .findByUserAndDateAndLocationTypeAndScheduleIsNull(
-                        user,
-                        date,
-                        LocationType.ARRIVAL
-                )
-                .ifPresent(record ->
-                        record.updateOuting(
-                                outing
-                        )
-                );
-    }
-
     @Transactional
     public void deleteBaseDayRecord(
             User user,

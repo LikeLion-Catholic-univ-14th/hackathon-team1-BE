@@ -399,6 +399,36 @@ public class TodayController {
                     response
             );
         }
+        // =========================================
+// 국내 대기일 + 외출 ON
+// UV 환산과 차단제 목록만 반환하고
+// AI 추천 및 솔루션은 생성하지 않는다.
+// =========================================
+
+        if (scheduleInfo.baseDay()) {
+
+            TodayResponse.SunProtection domesticSunProtection =
+                    new TodayResponse.SunProtection(
+                            List.of(),
+                            products,
+                            null
+                    );
+
+            TodayResponse response =
+                    new TodayResponse(
+                            "OUTING",
+                            userInfo,
+                            location,
+                            homeResponse.currentTime(),
+                            uvSummary,
+                            domesticSunProtection,
+
+                            // 국내 외출일은 AI 솔루션 없음
+                            List.of()
+                    );
+
+            return ResponseEntity.ok(response);
+        }
 
 
 // =========================
