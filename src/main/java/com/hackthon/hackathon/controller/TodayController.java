@@ -523,8 +523,8 @@ public class TodayController {
             default -> "UNKNOWN";
         };
     }
-    @PostMapping("/apply")
-    public ResponseEntity<SolutionAiResponse> generate(
+    @PostMapping("/solutions/generate")
+    public ResponseEntity<SolutionAiResponse> generateSolution(
             @RequestBody SolutionGenerateRequest request
     ) {
 
