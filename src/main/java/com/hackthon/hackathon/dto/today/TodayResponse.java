@@ -55,6 +55,7 @@ public record TodayResponse(
             Long productId,
             String name,
             String type,
+            String productType,
             int spf,
             boolean recommended
     ) {}

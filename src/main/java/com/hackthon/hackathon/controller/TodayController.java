@@ -334,44 +334,8 @@ public class TodayController {
 
 
         // =========================
-        // 13. INDOOR
-        // =========================
-
-        if (!scheduleInfo.outing()) {
-
-            TodayResponse response =
-                    new TodayResponse(
-                            "INDOOR",
-                            userInfo,
-                            location,
-                            homeResponse.currentTime(),
-                            uvSummary,
-                            null,
-                            List.of()
-                    );
-
-            return ResponseEntity.ok(
-                    response
-            );
-        }
-
-
-        // =========================
-        // 14. OUTING AI
-        // =========================
-
-        SolutionAiResponse solution =
-                solutionAiService.generateSolution(
-                        userId,
-                        homeResponse.uvIndex(),
-                        homeResponse.sunlightMinutes(),
-                        homeResponse.weatherCondition()
-                );
-
-
-        // =========================
-        // 15. PRODUCTS
-        // =========================
+// 13. PRODUCTS 기본 생성
+// =========================
 
         List<TodayResponse.Product> products =
                 homeResponse.sunscreens()
@@ -386,6 +350,7 @@ public class TodayController {
                                             case ORGANIC -> "유기자차";
                                             case MIXED -> "혼합자차";
                                         },
+                                        item.productType().name(),
 
                                         Integer.parseInt(
                                                 item.displayedSpf()
@@ -394,6 +359,88 @@ public class TodayController {
                                                                 ""
                                                         )
                                         ),
+
+                                        // INDOOR 기본값
+                                        false
+                                )
+                        )
+                        .toList();
+
+
+// =========================
+// 14. INDOOR
+// =========================
+
+        if (!scheduleInfo.outing()) {
+
+            TodayResponse.SunProtection indoorSunProtection =
+                    new TodayResponse.SunProtection(
+                            List.of(),
+                            products,
+                            null
+                    );
+
+            TodayResponse response =
+                    new TodayResponse(
+                            "INDOOR",
+                            userInfo,
+                            location,
+                            homeResponse.currentTime(),
+                            uvSummary,
+
+                            // 이제 null 아님
+                            indoorSunProtection,
+
+                            // AI 솔루션은 없음
+                            List.of()
+                    );
+
+            return ResponseEntity.ok(
+                    response
+            );
+        }
+
+
+// =========================
+// 15. OUTING AI
+// =========================
+
+        SolutionAiResponse solution =
+                solutionAiService.generateSolution(
+                        userId,
+                        homeResponse.uvIndex(),
+                        homeResponse.sunlightMinutes(),
+                        homeResponse.weatherCondition()
+                );
+
+
+// =========================
+// 16. OUTING PRODUCTS
+// =========================
+
+// OUTING에서는 AI 추천 제품에 recommended=true
+        products =
+                homeResponse.sunscreens()
+                        .stream()
+                        .map(item ->
+                                new TodayResponse.Product(
+                                        item.sunscreenId(),
+                                        item.name(),
+
+                                        switch (item.filterType()) {
+                                            case PHYSICAL -> "무기자차";
+                                            case ORGANIC -> "유기자차";
+                                            case MIXED -> "혼합자차";
+                                        },
+                                        item.productType().name(),
+                                        Integer.parseInt(
+                                                item.displayedSpf()
+                                                        .replaceAll(
+                                                                "[^0-9]",
+                                                                ""
+                                                        )
+                                        ),
+
 
                                         item.sunscreenId()
                                                 .equals(
@@ -404,9 +451,9 @@ public class TodayController {
                         .toList();
 
 
-        // =========================
-        // 16. TAGS
-        // =========================
+// =========================
+// 17. TAGS
+// =========================
 
         List<String> tags =
                 new ArrayList<>();
@@ -443,9 +490,9 @@ public class TodayController {
         }
 
 
-        // =========================
-        // 17. 선크림 추천
-        // =========================
+// =========================
+// 18. 선크림 추천 + AI SOLUTIONS
+// =========================
 
         TodayResponse.SunProtection sunProtection =
                 new TodayResponse.SunProtection(
@@ -453,11 +500,6 @@ public class TodayController {
                         products,
                         solution.message()
                 );
-
-
-        // =========================
-        // 18. AI SOLUTIONS
-        // =========================
 
         List<TodayResponse.Solution> todaySolutions =
                 solution.solutions()
