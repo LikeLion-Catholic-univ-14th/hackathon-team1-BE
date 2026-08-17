@@ -1,5 +1,7 @@
 package com.hackthon.hackathon.service;
 
+import com.hackthon.hackathon.entity.Schedule;
+import com.hackthon.hackathon.repository.ScheduleRepository;
 import com.hackthon.hackathon.dto.MypageResponse;
 import com.hackthon.hackathon.dto.ProcedureDto;
 import com.hackthon.hackathon.dto.ProfileUpdateRequest;
@@ -26,6 +28,7 @@ public class MypageService {
     private final SunscreenRepository sunscreenRepository;
     private final UserRepository userRepository;
     private final com.hackthon.hackathon.repository.ProcedureHistoryRepository procedureHistoryRepository;
+    private final ScheduleRepository scheduleRepository;
 
     public MypageResponse getMypageProfile(){
         User user = userRepository.findById(1L)
@@ -120,6 +123,12 @@ public class MypageService {
     public void deleteSunscreen(Long productId) {
         Sunscreen sunscreen = sunscreenRepository.findById(productId)
                 .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 선크림입니다."));
+
+        List<Schedule> schedules = scheduleRepository.findBySelectedSunscreen(sunscreen);
+
+        for (Schedule schedule : schedules) {
+            schedule.removeSelectedSunscreen();
+        }
 
         sunscreenRepository.delete(sunscreen);
     }
