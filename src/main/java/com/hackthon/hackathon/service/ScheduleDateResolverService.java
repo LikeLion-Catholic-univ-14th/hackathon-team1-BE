@@ -15,67 +15,39 @@ public class ScheduleDateResolverService {
             List<Schedule> schedules,
             LocalDate date
     ) {
-        Schedule flightSchedule =
-                schedules.stream()
-                        .filter(schedule -> {
-                            LocalDate departureDate =
-                                    TimeZoneUtil.fromUtc(
-                                            schedule.getDepartureTime(),
-                                            schedule.getDepartureAirport()
-                                    ).toLocalDate();
+        return schedules.stream()
+                .filter(schedule -> {
+                    LocalDate departureDate = TimeZoneUtil.fromUtc(schedule.getDepartureTime(),
+                            schedule.getDepartureAirport()).toLocalDate()
 
-                            LocalDate arrivalDate =
-                                    TimeZoneUtil.fromUtc(
-                                            schedule.getArrivalTime(),
-                                            schedule.getArrivalAirport()
-                                    ).toLocalDate();
+                    ;
 
-                            return !date.isBefore(departureDate)
-                                    && !date.isAfter(arrivalDate);
-                        })
-                        .min(
-                                Comparator.comparing(
-                                        Schedule::getDepartureTime
-                                )
+                    LocalDate arrivalDate =
+
+                            TimeZoneUtil.fromUtc(
+
+                            schedule.getArrivalTime(),
+
+                            schedule.getArrivalAirport()
+                    ).toLocalDate()
+
+                    ;
+
+
+                    return !
+                            date.isBefore(departureDate)
+                            && !
+                            date.isAfter(arrivalDate);
+                })
+                .min(
+
+                        Comparator.comparing(
+
+                                Schedule::getDepartureTime
                         )
-                        .orElse(null);
 
-        if (flightSchedule != null) {
-            return flightSchedule;
-        }
-
-        for (Schedule current : schedules) {
-            LocalDate arrivalDate =
-                    TimeZoneUtil.fromUtc(
-                            current.getArrivalTime(),
-                            current.getArrivalAirport()
-                    ).toLocalDate();
-
-            if (date.isBefore(arrivalDate)
-                    || isKoreanAirport(current.getArrivalAirport())) {
-                continue;
-            }
-
-            Schedule nextDeparture =
-                    findNextDeparture(schedules, current);
-
-            if (nextDeparture == null) {
-                continue;
-            }
-
-            LocalDate nextDepartureDate =
-                    TimeZoneUtil.fromUtc(
-                            nextDeparture.getDepartureTime(),
-                            nextDeparture.getDepartureAirport()
-                    ).toLocalDate();
-
-            if (!date.isBefore(arrivalDate)
-                    && date.isBefore(nextDepartureDate)) {
-                return current;
-            }
-        }
-
-        return null;
+                )
+                .orElse(null);
     }
 
     public Schedule findNextDeparture(

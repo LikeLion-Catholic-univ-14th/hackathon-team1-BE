@@ -347,13 +347,9 @@ public class ScheduleDailyService {
                         schedule
                 );
 
-        Long responseScheduleId =
-                isActualScheduleDate(schedule, date)
-                        ? schedule.getId()
-                        : null;
 
         return new ScheduleDailyResponse(
-                responseScheduleId,
+                schedule.getId(),
                 date.toString(),
                 route,
                 flightStatus,
@@ -753,34 +749,6 @@ public class ScheduleDailyService {
         );
     }
 
-    private boolean isActualScheduleDate(
-            Schedule schedule,
-            LocalDate date
-    ) {
-
-
-        LocalDate departureDate =
-                getDepartureLocalTime(
-                        schedule
-                )
-                        .toLocalDate();
-
-
-        LocalDate arrivalDate =
-                getArrivalLocalTime(
-
-                        schedule
-                )
-                        .toLocalDate();
-
-        return !date.isBefore(
-                departureDate
-        )
-                && !date.isAfter(
-                arrivalDate
-        );
-
-    }
 
     // =====================================================
     // 공항별 UV
