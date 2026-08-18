@@ -9,6 +9,7 @@ import com.hackthon.hackathon.entity.Schedule;
 import com.hackthon.hackathon.entity.User;
 import com.hackthon.hackathon.repository.UserRepository;
 import com.hackthon.hackathon.service.*;
+import com.hackthon.hackathon.util.TimeZoneUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -91,6 +92,21 @@ public class TodayController {
         // 4. 외출 가능 시간
         // =========================
 
+        Schedule currentSchedule =
+                scheduleInfo.schedule();
+
+        LocalDateTime nowUtc =
+                LocalDateTime.now(ZoneOffset.UTC);
+
+        boolean isInFlight =
+                currentSchedule != null
+                        && !nowUtc.isBefore(
+                                currentSchedule.getDepartureTime()
+                        )
+                        && nowUtc.isBefore(
+                                currentSchedule.getArrivalTime()
+                        );
+
         SunlightWindowService.AvailableWindow availableWindow;
 
         if (scheduleInfo.baseDay()) {
@@ -106,6 +122,26 @@ public class TodayController {
                             .calculateBaseDayAvailableWindow(
                                     scheduleInfo.localDate()
                             );
+
+        } else if (isInFlight) {
+
+            /*
+             * 비행 중에는 레이오버 계산을 사용하지 않고
+             * 현재 위치 현지시각부터 30분을 기내 노출 구간으로 계산한다.
+             */
+            LocalDateTime localNow =
+                    TimeZoneUtil.fromUtc(
+                            nowUtc,
+                            airportCode
+                    );
+
+            availableWindow =
+                    new SunlightWindowService.AvailableWindow(
+                            localNow,
+                            localNow.plusMinutes(
+                                    DEFAULT_FLIGHT_EXPOSURE_MINUTES
+                            )
+                    );
 
         } else {
 
@@ -209,10 +245,6 @@ public class TodayController {
                     );
 
         } else {
-
-            Schedule currentSchedule =
-                    scheduleInfo.schedule();
-
             if (currentSchedule != null) {
 
                 exposureRecordService
@@ -233,15 +265,19 @@ public class TodayController {
         // =========================
 
         String position;
-        Schedule currentSchedule=
-                scheduleInfo.schedule();
         if (scheduleInfo.baseDay()) {
 
             position = "대기";
 
         } else if (currentSchedule != null
-        && LocalDateTime.now(ZoneOffset.UTC).isBefore(currentSchedule.getDepartureTime())) {
+                && nowUtc.isBefore(
+                        currentSchedule.getDepartureTime()
+                )) {
             position = "대기";
+        } else if (isInFlight) {
+
+            position = "비행중";
+
         } else if (scheduleInfo.quickTurn()) {
 
             position = "퀵턴";
@@ -266,7 +302,10 @@ public class TodayController {
                 new TodayResponse.LocationInfo(
                         homeResponse.city(),
                         homeResponse.country(),
-                        exposureResult.riskLevel()
+                        exposureCalculationService
+                                .calculateRiskLevel(
+                                        homeResponse.uvIndex()
+                                )
                 );
 
 
@@ -399,36 +438,6 @@ public class TodayController {
                     response
             );
         }
-        // =========================================
-// 국내 대기일 + 외출 ON
-// UV 환산과 차단제 목록만 반환하고
-// AI 추천 및 솔루션은 생성하지 않는다.
-// =========================================
-
-        if (scheduleInfo.baseDay()) {
-
-            TodayResponse.SunProtection domesticSunProtection =
-                    new TodayResponse.SunProtection(
-                            List.of(),
-                            products,
-                            null
-                    );
-
-            TodayResponse response =
-                    new TodayResponse(
-                            "OUTING",
-                            userInfo,
-                            location,
-                            homeResponse.currentTime(),
-                            uvSummary,
-                            domesticSunProtection,
-
-                            // 국내 외출일은 AI 솔루션 없음
-                            List.of()
-                    );
-
-            return ResponseEntity.ok(response);
-        }
 
 
 // =========================
@@ -439,7 +448,9 @@ public class TodayController {
                 solutionAiService.generateSolution(
                         userId,
                         homeResponse.uvIndex(),
-                        homeResponse.sunlightMinutes(),
+                        isInFlight
+                                ? DEFAULT_FLIGHT_EXPOSURE_MINUTES
+                                : homeResponse.sunlightMinutes(),
                         homeResponse.weatherCondition()
                 );
 
@@ -608,6 +619,21 @@ public class TodayController {
                         userId
                 );
 
+        Schedule currentSchedule =
+                scheduleInfo.schedule();
+
+        LocalDateTime nowUtc =
+                LocalDateTime.now(ZoneOffset.UTC);
+
+        boolean isInFlight =
+                currentSchedule != null
+                        && !nowUtc.isBefore(
+                                currentSchedule.getDepartureTime()
+                        )
+                        && nowUtc.isBefore(
+                                currentSchedule.getArrivalTime()
+                        );
+
 
         String airportCode =
                 scheduleInfo.airportCode();
@@ -629,6 +655,22 @@ public class TodayController {
                             .calculateBaseDayAvailableWindow(
                                     scheduleInfo.localDate()
                             );
+
+        } else if (isInFlight) {
+
+            LocalDateTime localNow =
+                    TimeZoneUtil.fromUtc(
+                            nowUtc,
+                            airportCode
+                    );
+
+            availableWindow =
+                    new SunlightWindowService.AvailableWindow(
+                            localNow,
+                            localNow.plusMinutes(
+                                    DEFAULT_FLIGHT_EXPOSURE_MINUTES
+                            )
+                    );
 
         } else {
 
@@ -697,7 +739,9 @@ public class TodayController {
                                 userId,
                                 request.sunscreenId(),
                                 homeResponse.uvIndex(),
-                                homeResponse.sunlightMinutes(),
+                                isInFlight
+                                        ? DEFAULT_FLIGHT_EXPOSURE_MINUTES
+                                        : homeResponse.sunlightMinutes(),
                                 homeResponse.weatherCondition()
                         );
 

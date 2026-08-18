@@ -44,6 +44,26 @@ public class HomeUvService {
                         weather
                 );
 
+        int currentHourIndex =
+                findCurrentHourIndex(
+                        weather,
+                        airportCode
+                );
+
+        if ("알 수 없음".equals(weatherCondition)
+                && currentHourIndex >= 0) {
+
+            Integer weatherCode =
+                    weather.getHourly()
+                            .getWeatherCode()
+                            .get(currentHourIndex);
+
+            weatherCondition =
+                    convertWeatherCode(
+                            weatherCode
+                    );
+        }
+
         Instant now = Instant.now();
 
         DateTimeFormatter formatter =
@@ -68,6 +88,25 @@ public class HomeUvService {
                 .mapToDouble(UvGraphPoint::uvValue)
                 .max()
                 .orElse(0.0);
+
+        int displayTemperature =
+                result.temperature();
+
+        if (windows.isEmpty()
+                && currentHourIndex >= 0) {
+
+            Double currentTemperature =
+                    weather.getHourly()
+                            .getTemperature()
+                            .get(currentHourIndex);
+
+            if (currentTemperature != null) {
+                displayTemperature =
+                        (int) Math.round(
+                                currentTemperature
+                        );
+            }
+        }
         List<UserSunscreenService.SunscreenProtectionResponse> sunscreens =
                 userSunscreenService.calculateUserSunscreens(
                         userId,
@@ -89,13 +128,89 @@ public class HomeUvService {
                 result.koreaComparison(),
 
                 result.sunlightMinutes(),
-                result.temperature(),
+                displayTemperature,
                 weatherCondition,
-                result.riskLevel(),
+                exposureCalculationService
+                        .calculateRiskLevel(
+                                todayMaxUv
+                        ),
 
                 uvGraph,
                 sunscreens
         );
+    }
+
+    private int findCurrentHourIndex(
+            WeatherResponse weather,
+            String airportCode
+    ) {
+        if (weather == null
+                || weather.getHourly() == null
+                || weather.getHourly().getTime() == null) {
+            return -1;
+        }
+
+        LocalDateTime localNow =
+                timeConversionService
+                        .utcToLocal(
+                                Instant.now(),
+                                airportCode
+                        )
+                        .toLocalDateTime();
+
+        List<String> times =
+                weather.getHourly().getTime();
+
+        for (int i = 0; i < times.size(); i++) {
+            LocalDateTime time =
+                    LocalDateTime.parse(
+                            times.get(i)
+                    );
+
+            if (time.toLocalDate()
+                    .equals(localNow.toLocalDate())
+                    && time.getHour() == localNow.getHour()) {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    private String convertWeatherCode(
+            Integer weatherCode
+    ) {
+        if (weatherCode == null) {
+            return "알 수 없음";
+        }
+
+        if (weatherCode == 0) {
+            return "맑음";
+        }
+
+        if (weatherCode >= 1 && weatherCode <= 3) {
+            return "흐림";
+        }
+
+        if (weatherCode >= 45 && weatherCode <= 48) {
+            return "안개";
+        }
+
+        if ((weatherCode >= 51 && weatherCode <= 67)
+                || (weatherCode >= 80 && weatherCode <= 82)) {
+            return "비";
+        }
+
+        if ((weatherCode >= 71 && weatherCode <= 77)
+                || (weatherCode >= 85 && weatherCode <= 86)) {
+            return "눈";
+        }
+
+        if (weatherCode >= 95) {
+            return "뇌우";
+        }
+
+        return "기타";
     }
 
     private List<UvGraphPoint> createTodayUvGraph(
