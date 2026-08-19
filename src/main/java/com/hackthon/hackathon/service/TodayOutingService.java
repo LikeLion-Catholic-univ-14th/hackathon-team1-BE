@@ -1,19 +1,15 @@
 package com.hackthon.hackathon.service;
 
 import com.hackthon.hackathon.dto.today.TodayOutingResponse;
-import com.hackthon.hackathon.entity.Schedule;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.time.LocalDate;
 
 @Service
 @RequiredArgsConstructor
 public class TodayOutingService {
 
     private final TodayService todayService;
-    private final ScheduleService scheduleService;
     private final DailyOutingService dailyOutingService;
 
     @Transactional
@@ -28,44 +24,13 @@ public class TodayOutingService {
                 );
 
 
-        // ==========================================
-        // 일정 없는 소속공항 대기일
-        // ==========================================
-
-        if (todayInfo.baseDay()) {
-
-            dailyOutingService.updateOuting(
-                    userId,
-                    LocalDate.now(),
-                    outing
-            );
-
-            return new TodayOutingResponse(
-                    outing
-                            ? "OUTING"
-                            : "INDOOR",
-                    outing
-            );
-        }
-
-
-        // ==========================================
-        // 일정 있는 날
-        // ==========================================
-
-        Schedule schedule =
-                todayInfo.schedule();
-
-        if (schedule == null) {
-
-            throw new IllegalStateException(
-                    "오늘 일정 정보를 찾을 수 없습니다."
-            );
-        }
-
-
-        scheduleService.updateOuting(
-                schedule.getId(),
+        /*
+         * 일정 유무와 관계없이 현재 위치의 현지 날짜를 기준으로 저장한다.
+         * GET /today, 날짜 상세, 월말 리포트가 모두 DailyOuting을 읽는다.
+         */
+        dailyOutingService.updateOuting(
+                userId,
+                todayInfo.localDate(),
                 outing
         );
 

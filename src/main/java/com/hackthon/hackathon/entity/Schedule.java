@@ -103,4 +103,9 @@ public class Schedule {
         this.selectedSunscreen = sunscreen;
         this.applied = applied;
     }
+
+    public void removeSelectedSunscreen() {
+        this.selectedSunscreen = null;
+        this.applied = false;
+    }
 }

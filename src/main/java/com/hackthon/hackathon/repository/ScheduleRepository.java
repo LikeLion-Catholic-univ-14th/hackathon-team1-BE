@@ -1,6 +1,7 @@
 package com.hackthon.hackathon.repository;
 
 import com.hackthon.hackathon.entity.Schedule;
+import com.hackthon.hackathon.entity.Sunscreen;
 import com.hackthon.hackathon.entity.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 
@@ -38,5 +39,5 @@ public interface ScheduleRepository extends JpaRepository<Schedule, Long> {
             User user,
             LocalDateTime dateTime
     );
-
+    List<Schedule> findBySelectedSunscreen(Sunscreen sunscreen);
 }

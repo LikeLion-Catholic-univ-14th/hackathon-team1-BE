@@ -7,11 +7,14 @@ import com.hackthon.hackathon.enums.BaseAirport;
 import com.hackthon.hackathon.repository.DailyOutingRepository;
 import com.hackthon.hackathon.repository.ScheduleRepository;
 import com.hackthon.hackathon.repository.UserRepository;
+import com.hackthon.hackathon.util.TimeZoneUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.Comparator;
 import java.util.List;
 
@@ -22,6 +25,7 @@ public class TodayService {
     private final UserRepository userRepository;
     private final ScheduleRepository scheduleRepository;
     private final DailyOutingRepository dailyOutingRepository;
+
 
     public TodayScheduleInfo getTodayScheduleInfo(
             Long userId
@@ -35,11 +39,23 @@ public class TodayService {
                                 )
                         );
 
-        LocalDate today =
-                LocalDate.now();
 
-        LocalDateTime now =
-                LocalDateTime.now();
+        String baseAirportCode =
+                convertBaseAirportToAirportCode(
+                        user.getBaseAirport()
+                );
+
+
+        /*
+         * DB의 Schedule 시간은 UTC LocalDateTime이므로
+         * 현재시각도 명시적으로 UTC로 맞춘다.
+         */
+        LocalDateTime nowUtc =
+                LocalDateTime.ofInstant(
+                        Instant.now(),
+                        ZoneOffset.UTC
+                );
+
 
         List<Schedule> schedules =
                 scheduleRepository
@@ -47,32 +63,38 @@ public class TodayService {
                                 user
                         );
 
-        Schedule schedule =
-                findScheduleForDate(
+
+        CurrentScheduleContext context =
+                findCurrentSchedule(
                         schedules,
-                        today
+                        nowUtc,
+                        baseAirportCode
                 );
 
-        /*
-         * ==========================================
-         * 일정 없는 날
-         * ==========================================
-         */
-        if (schedule == null) {
 
-            String baseAirportCode =
-                    convertBaseAirportToAirportCode(
-                            user.getBaseAirport()
-                    );
+        // ==========================================
+        // 일정 없는 소속공항 대기일
+        // ==========================================
+
+        if (context == null) {
+
+            LocalDate localDate =
+                    TimeZoneUtil.fromUtc(
+                                    nowUtc,
+                                    baseAirportCode
+                            )
+                            .toLocalDate();
+
 
             boolean outing =
                     dailyOutingRepository
                             .findByUserAndDate(
                                     user,
-                                    today
+                                    localDate
                             )
                             .map(DailyOuting::isOuting)
                             .orElse(false);
+
 
             return new TodayScheduleInfo(
                     baseAirportCode,
@@ -81,45 +103,37 @@ public class TodayService {
                     false,
                     outing,
                     null,
-                    true
+                    true,
+                    localDate
             );
         }
 
 
+        // ==========================================
+        // 일정 있는 날
+        // ==========================================
+
+        Schedule schedule =
+                context.schedule();
+
+        String airportCode =
+                context.airportCode();
+
+
         /*
-         * ==========================================
-         * 일정 있는 날
-         * ==========================================
+         * 현재 위치의 현지 날짜
          */
-
-        String airportCode;
-
-        /*
-         * 출발 전 또는 비행 중
-         *
-         * 아직 도착 공항에 도착하지 않았으므로
-         * 출발 공항 기준으로 홈 위치 표시
-         */
-        if (now.isBefore(
-                schedule.getArrivalTime()
-        )) {
-
-            airportCode =
-                    schedule.getDepartureAirport();
-
-        } else {
-
-            /*
-             * 도착 완료
-             * → 도착 공항 기준
-             */
-            airportCode =
-                    schedule.getArrivalAirport();
-        }
+        LocalDate localDate =
+                TimeZoneUtil.fromUtc(
+                                nowUtc,
+                                airportCode
+                        )
+                        .toLocalDate();
 
 
         /*
-         * 해당 현재 위치에서 출발하는 다음 일정 찾기
+         * 현재 위치에서 앞으로 출발하는
+         * 가장 가까운 일정
          */
         Schedule nextSchedule =
                 schedules.stream()
@@ -131,7 +145,9 @@ public class TodayService {
                         )
                         .filter(next ->
                                 next.getDepartureTime()
-                                        .isAfter(now)
+                                        .isAfter(
+                                                nowUtc
+                                        )
                         )
                         .min(
                                 Comparator.comparing(
@@ -141,40 +157,62 @@ public class TodayService {
                         .orElse(null);
 
 
+        /*
+         * DB UTC → 현재 공항 현지시간
+         *
+         * SunlightWindowService는 날씨 API의
+         * 현지시간과 비교하므로 여기서 현지시간으로 바꾼다.
+         */
         LocalDateTime nextDepartureTime =
                 nextSchedule != null
-                        ? nextSchedule.getDepartureTime()
+                        ? TimeZoneUtil.fromUtc(
+                        nextSchedule.getDepartureTime(),
+                        airportCode
+                )
                         : null;
 
 
         /*
-         * 햇빛창 계산에 사용할 기준 도착시간
-         *
-         * 현재 schedule이 아직 출발 전/비행 중이라면
-         * 현재 schedule의 arrivalTime을 넣으면
-         * 출발지 체류시간 계산이 꼬일 수 있음.
-         *
-         * 그래서 현재 위치에 가장 최근 도착한 일정을 찾는다.
+         * 현재 공항에 가장 최근 도착한 UTC 시간
          */
-        LocalDateTime stayArrivalTime =
+        LocalDateTime stayArrivalUtc =
                 findLatestArrivalTimeAtAirport(
                         schedules,
                         airportCode,
-                        now
+                        nowUtc
                 );
 
-        /*
-         * 최근 도착 일정이 없으면
-         * 현재 schedule의 arrivalTime 대신
-         * 오늘 시작 시각을 임시 기준으로 사용
-         *
-         * 단, 실제 레이오버라면 보통 최근 도착 일정이 존재함.
-         */
-        if (stayArrivalTime == null) {
 
+        LocalDateTime stayArrivalTime;
+
+        if (stayArrivalUtc != null) {
+
+            /*
+             * UTC → 현재 위치 현지시간
+             */
             stayArrivalTime =
-                    today.atStartOfDay();
+                    TimeZoneUtil.fromUtc(
+                            stayArrivalUtc,
+                            airportCode
+                    );
+
+        } else {
+
+            /*
+             * 아직 해당 공항으로 도착한 기록이 없다면
+             * 현재 위치 현지 날짜의 00:00 사용
+             */
+            stayArrivalTime =
+                    localDate.atStartOfDay();
         }
+        boolean outing =
+                dailyOutingRepository
+                        .findByUserAndDate(
+                                user,
+                                localDate
+                        )
+                        .map(DailyOuting::isOuting)
+                        .orElse(true);
 
 
         return new TodayScheduleInfo(
@@ -182,38 +220,155 @@ public class TodayService {
                 stayArrivalTime,
                 nextDepartureTime,
                 schedule.isQuickTurn(),
-                schedule.isOuting(),
+                outing,
                 schedule,
-                false
+                false,
+                localDate
         );
     }
 
 
-    /**
-     * 오늘 날짜에 실제 비행 또는 레이오버가 있는지 탐색
-     */
-    private Schedule findScheduleForDate(
+    // ==========================================
+    // 현재 일정 / 현재 위치 찾기
+    // ==========================================
+
+    private CurrentScheduleContext findCurrentSchedule(
             List<Schedule> schedules,
-            LocalDate date
+            LocalDateTime nowUtc,
+            String baseAirportCode
     ) {
 
         /*
-         * 1. 실제 비행일
+         * ==========================================
+         * 1. 현재 실제 비행 중
+         * ==========================================
+         *
+         * departure <= now < arrival
          */
-        Schedule flightSchedule =
+        Schedule activeFlight =
                 schedules.stream()
+                        .filter(schedule ->
+                                !nowUtc.isBefore(
+                                        schedule.getDepartureTime()
+                                )
+                        )
+                        .filter(schedule ->
+                                nowUtc.isBefore(
+                                        schedule.getArrivalTime()
+                                )
+                        )
+                        .min(
+                                Comparator.comparing(
+                                        Schedule::getDepartureTime
+                                )
+                        )
+                        .orElse(null);
+
+
+        if (activeFlight != null) {
+
+            /*
+             * 기존 홈 정책 유지:
+             * 도착 전까지는 출발 공항 기준
+             */
+            return new CurrentScheduleContext(
+                    activeFlight,
+                    activeFlight.getDepartureAirport()
+            );
+        }
+
+
+        /*
+         * ==========================================
+         * 2. 해외 레이오버
+         * ==========================================
+         *
+         * 이미 도착했고,
+         * 해당 도착 공항에서 출발하는
+         * 다음 일정이 아직 남아 있는 경우.
+         */
+        Schedule layoverSchedule =
+                schedules.stream()
+                        .filter(schedule ->
+                                !schedule.getArrivalTime()
+                                        .isAfter(
+                                                nowUtc
+                                        )
+                        )
+                        .filter(schedule ->
+                                !isKoreaBaseAirport(
+                                        schedule.getArrivalAirport()
+                                )
+                        )
+                        .filter(schedule ->
+                                hasFutureDepartureFromAirport(
+                                        schedules,
+                                        schedule.getArrivalAirport(),
+                                        schedule.getArrivalTime(),
+                                        nowUtc
+                                )
+                        )
+                        .max(
+                                Comparator.comparing(
+                                        Schedule::getArrivalTime
+                                )
+                        )
+                        .orElse(null);
+
+
+        if (layoverSchedule != null) {
+
+            return new CurrentScheduleContext(
+                    layoverSchedule,
+                    layoverSchedule.getArrivalAirport()
+            );
+        }
+
+
+        /*
+         * ==========================================
+         * 3. 오늘 소속공항에서 출발 예정
+         * ==========================================
+         *
+         * 아직 출발하지 않았지만
+         * 현지 기준 오늘 출발하는 일정이 있으면
+         * 홈에 해당 일정 표시.
+         */
+        LocalDate baseLocalToday =
+                TimeZoneUtil.fromUtc(
+                                nowUtc,
+                                baseAirportCode
+                        )
+                        .toLocalDate();
+
+
+        Schedule upcomingToday =
+                schedules.stream()
+                        .filter(schedule ->
+                                schedule.getDepartureAirport()
+                                        .equals(
+                                                baseAirportCode
+                                        )
+                        )
+                        .filter(schedule ->
+                                schedule.getDepartureTime()
+                                        .isAfter(
+                                                nowUtc
+                                        )
+                        )
                         .filter(schedule -> {
 
-                            LocalDate departureDate =
-                                    schedule.getDepartureTime()
+                            LocalDate localDepartureDate =
+                                    TimeZoneUtil.fromUtc(
+                                                    schedule.getDepartureTime(),
+                                                    schedule.getDepartureAirport()
+                                            )
                                             .toLocalDate();
 
-                            LocalDate arrivalDate =
-                                    schedule.getArrivalTime()
-                                            .toLocalDate();
-
-                            return !date.isBefore(departureDate)
-                                    && !date.isAfter(arrivalDate);
+                            return localDepartureDate
+                                    .equals(
+                                            baseLocalToday
+                                    );
                         })
                         .min(
                                 Comparator.comparing(
@@ -222,75 +377,62 @@ public class TodayService {
                         )
                         .orElse(null);
 
-        if (flightSchedule != null) {
-            return flightSchedule;
+
+        if (upcomingToday != null) {
+
+            return new CurrentScheduleContext(
+                    upcomingToday,
+                    upcomingToday.getDepartureAirport()
+            );
         }
 
 
         /*
-         * 2. 레이오버
-         *
-         * 도착 후 같은 공항에서 출발하는
-         * 다음 비행 전까지
+         * 비행도 아니고
+         * 해외 레이오버도 아니고
+         * 오늘 출발 예정도 없음
          */
-        for (Schedule current : schedules) {
-
-            LocalDate arrivalDate =
-                    current.getArrivalTime()
-                            .toLocalDate();
-
-            if (date.isBefore(arrivalDate)) {
-                continue;
-            }
-
-            Schedule nextDeparture =
-                    schedules.stream()
-                            .filter(next ->
-                                    next.getDepartureTime()
-                                            .isAfter(
-                                                    current.getArrivalTime()
-                                            )
-                            )
-                            .filter(next ->
-                                    next.getDepartureAirport()
-                                            .equals(
-                                                    current.getArrivalAirport()
-                                            )
-                            )
-                            .min(
-                                    Comparator.comparing(
-                                            Schedule::getDepartureTime
-                                    )
-                            )
-                            .orElse(null);
-
-            if (nextDeparture == null) {
-                continue;
-            }
-
-            LocalDate nextDepartureDate =
-                    nextDeparture
-                            .getDepartureTime()
-                            .toLocalDate();
-
-            if (!date.isBefore(arrivalDate)
-                    && date.isBefore(nextDepartureDate)) {
-
-                return current;
-            }
-        }
-
         return null;
     }
 
 
-    /**
-     * 현재 공항에 가장 최근에 도착한 시간 찾기
-     */
+    // ==========================================
+    // 해당 공항에서 앞으로 출발 일정이 있는지
+    // ==========================================
+
+    private boolean hasFutureDepartureFromAirport(
+            List<Schedule> schedules,
+            String airportCode,
+            LocalDateTime arrivalTimeUtc,
+            LocalDateTime nowUtc
+    ) {
+
+        return schedules.stream()
+                .anyMatch(next ->
+                        next.getDepartureAirport()
+                                .equals(
+                                        airportCode
+                                )
+                                && next.getDepartureTime()
+                                .isAfter(
+                                        arrivalTimeUtc
+                                )
+                                && next.getDepartureTime()
+                                .isAfter(
+                                        nowUtc
+                                )
+                );
+    }
+
+
+    // ==========================================
+    // 현재 공항에 가장 최근 도착한 UTC 시간
+    // ==========================================
+
     private LocalDateTime findLatestArrivalTimeAtAirport(
             List<Schedule> schedules,
             String airportCode,
-            LocalDateTime now
+            LocalDateTime nowUtc
     ) {
 
         return schedules.stream()
@@ -302,7 +444,9 @@ public class TodayService {
                 )
                 .filter(schedule ->
                         !schedule.getArrivalTime()
-                                .isAfter(now)
+                                .isAfter(
+                                        nowUtc
+                                )
                 )
                 .map(
                         Schedule::getArrivalTime
@@ -314,34 +458,69 @@ public class TodayService {
     }
 
 
+    // ==========================================
+    // 소속공항 enum → IATA
+    // ==========================================
+
     private String convertBaseAirportToAirportCode(
             BaseAirport baseAirport
     ) {
 
         if (baseAirport == null) {
+
             throw new IllegalStateException(
                     "사용자의 소속 공항이 등록되어 있지 않습니다."
             );
         }
 
         return switch (baseAirport) {
+
             case INCHEON -> "ICN";
             case GIMPO -> "GMP";
         };
     }
 
 
+    // ==========================================
+    // 내부 현재 일정 정보
+    // ==========================================
+
+    private record CurrentScheduleContext(
+            Schedule schedule,
+            String airportCode
+    ) {
+    }
+
+
+    // ==========================================
+    // Controller 전달 정보
+    // ==========================================
+
     public record TodayScheduleInfo(
             String airportCode,
+
+            /*
+             * 현재 위치 현지시간
+             */
             LocalDateTime arrivalTime,
+
+            /*
+             * 현재 위치 현지시간
+             */
             LocalDateTime nextDepartureTime,
+
             boolean quickTurn,
             boolean outing,
 
             // null이면 일정 없는 소속공항 대기일
             Schedule schedule,
 
-            boolean baseDay
+            boolean baseDay,
+
+            /*
+             * 현재 위치 기준 현지 날짜
+             */
+            LocalDate localDate
     ) {
     }
 
@@ -356,5 +535,12 @@ public class TodayService {
                 );
 
         return info.schedule();
+    }
+    private boolean isKoreaBaseAirport(
+            String airportCode
+    ) {
+
+        return "ICN".equals(airportCode)
+                || "GMP".equals(airportCode);
     }
 }

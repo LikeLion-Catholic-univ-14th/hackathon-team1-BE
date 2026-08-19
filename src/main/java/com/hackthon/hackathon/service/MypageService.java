@@ -1,5 +1,7 @@
 package com.hackthon.hackathon.service;
 
+import com.hackthon.hackathon.entity.Schedule;
+import com.hackthon.hackathon.repository.ScheduleRepository;
 import com.hackthon.hackathon.dto.MypageResponse;
 import com.hackthon.hackathon.dto.ProcedureDto;
 import com.hackthon.hackathon.dto.ProfileUpdateRequest;
@@ -20,21 +22,18 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
-import java.util.stream.Collectors;
-
 @Service
 @RequiredArgsConstructor
 public class MypageService {
     private final SunscreenRepository sunscreenRepository;
     private final UserRepository userRepository;
     private final com.hackthon.hackathon.repository.ProcedureHistoryRepository procedureHistoryRepository;
+    private final ScheduleRepository scheduleRepository;
 
     public MypageResponse getMypageProfile(){
         User user = userRepository.findById(1L)
                 .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 유저입니다."));
+
         List<Sunscreen> sunscreens = sunscreenRepository.findByUserId(user.getId());
         List<MypageResponse.PouchItemDto> pouchDtos = sunscreens.stream()
                 .map(sunscreen -> MypageResponse.PouchItemDto.builder()
@@ -47,20 +46,28 @@ public class MypageService {
                         .build())
                 .collect(Collectors.toList());
 
-        // 4. 유저의 피부 타입 및 고민 Enum 리스트를 String 리스트로 변환
+
         List<String> skinTypeStrings = user.getSkinTypes() != null ?
                 user.getSkinTypes().stream().map(Enum::name).collect(Collectors.toList()) : null;
 
         List<String> skinConcernStrings = user.getSkinConcerns() != null ?
                 user.getSkinConcerns().stream().map(Enum::name).collect(Collectors.toList()) : null;
 
-        // 5. 최종 응답 DTO 빌드 및 반환
+
+        MypageResponse.ProcedureHistoryDto procedureDto = MypageResponse.ProcedureHistoryDto.builder()
+                .hasHistory(user.isHasProcedureHistory())
+                .detail(user.getProcedureDetails())
+                .isRecentOneMonth(user.getProcedureWithinOneMonth())
+                .build();
+
+
         return MypageResponse.builder()
                 .name(user.getName())
                 .baseAirport(user.getBaseAirport() != null ? user.getBaseAirport().name() : null)
                 .skinTypes(skinTypeStrings)
                 .skinConcerns(skinConcernStrings)
-                .pouch(pouchDtos) // 등록된 게 없으면 자연스럽게 빈 리스트([])가 담깁니다!
+                .procedureHistory(procedureDto) // 최종 응답에 시술 이력 바구니 추가!
+                .pouch(pouchDtos)
                 .build();
     }
 
@@ -73,12 +80,14 @@ public class MypageService {
                 BaseAirport.valueOf(request.getBaseAirport()) : user.getBaseAirport();
 
         Set<SkinType> skinTypes = new HashSet<>();
-        if (request.getSkinType() != null) {
-            skinTypes.add(SkinType.valueOf(request.getSkinType()));
+        if (request.getSkinTypes() != null && !request.getSkinTypes().isEmpty()) {
+            skinTypes = request.getSkinTypes().stream()
+                    .map(SkinType::valueOf)
+                    .collect(Collectors.toSet());
         }
 
         Set<SkinConcern> concerns = new HashSet<>();
-        if (request.getSkinConcerns() != null) {
+        if (request.getSkinConcerns() != null && !request.getSkinConcerns().isEmpty()) {
             concerns = request.getSkinConcerns().stream()
                     .map(SkinConcern::valueOf)
                     .collect(Collectors.toSet());
@@ -115,12 +124,17 @@ public class MypageService {
         Sunscreen sunscreen = sunscreenRepository.findById(productId)
                 .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 선크림입니다."));
 
+        List<Schedule> schedules = scheduleRepository.findBySelectedSunscreen(sunscreen);
+
+        for (Schedule schedule : schedules) {
+            schedule.removeSelectedSunscreen();
+        }
+
         sunscreenRepository.delete(sunscreen);
     }
 
     @org.springframework.transaction.annotation.Transactional
     public void addProcedure(ProcedureDto.Request request) {
-        // 현재 하드코딩된 1번 유저 사용
         User user = userRepository.findById(1L)
                 .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 유저입니다."));
 
@@ -133,7 +147,7 @@ public class MypageService {
         procedureHistoryRepository.save(procedure);
     }
 
-    // 2. 조회
+    //조회
     public List<ProcedureDto.Response> getProcedures() {
         return procedureHistoryRepository.findByUserId(1L).stream()
                 .map(p -> ProcedureDto.Response.builder()
@@ -144,7 +158,7 @@ public class MypageService {
                 .collect(java.util.stream.Collectors.toList());
     }
 
-    // 3. 삭제
+    //삭제
     @org.springframework.transaction.annotation.Transactional
     public void deleteProcedure(Long procedureId) {
         procedureHistoryRepository.deleteById(procedureId);

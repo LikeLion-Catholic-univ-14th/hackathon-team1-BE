@@ -76,6 +76,14 @@ public class ExposureRecord {
     @Column(name = "weather_condition", nullable = false, length = 100)
     private String weatherCondition;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "selected_sunscreen_id")
+    private Sunscreen selectedSunscreen;
+
+    @Builder.Default
+    @Column(name = "is_applied", nullable = false)
+    private boolean applied = false;
+
     public void updateCalculation(
             String airportCode,
             Double uvIndex,
@@ -110,6 +118,14 @@ public class ExposureRecord {
             boolean outing
     ) {
         this.isOuting = outing;
+    }
+
+    public void applySunscreen(
+            Sunscreen sunscreen,
+            boolean applied
+    ) {
+        this.selectedSunscreen = sunscreen;
+        this.applied = applied;
     }
 
 }

@@ -41,7 +41,7 @@ public class WeatherService {
                         )
                         .queryParam(
                                 "past_days",
-                                16
+                                31
                         )
                         .queryParam(
                                 "forecast_days",

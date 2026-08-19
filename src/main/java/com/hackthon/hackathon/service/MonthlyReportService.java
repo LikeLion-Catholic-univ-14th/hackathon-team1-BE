@@ -1,10 +1,12 @@
 package com.hackthon.hackathon.service;
 
 import com.hackthon.hackathon.dto.MonthlyReportResponse;
+import com.hackthon.hackathon.entity.DailyOuting;
 import com.hackthon.hackathon.entity.ExposureRecord;
 import com.hackthon.hackathon.entity.Schedule;
 import com.hackthon.hackathon.entity.User;
 import com.hackthon.hackathon.enums.RiskLevel;
+import com.hackthon.hackathon.repository.DailyOutingRepository;
 import com.hackthon.hackathon.repository.ExposureRecordRepository;
 import com.hackthon.hackathon.repository.ScheduleRepository;
 import com.hackthon.hackathon.repository.UserRepository;
@@ -26,6 +28,12 @@ public class MonthlyReportService {
     private final UserRepository userRepository;
     private final ExposureRecordRepository exposureRecordRepository;
     private final ScheduleRepository scheduleRepository;
+    private final DailyOutingRepository dailyOutingRepository;
+
+
+    // ==========================================
+    // 월말 리포트 조회
+    // ==========================================
 
     @Transactional(readOnly = true)
     public MonthlyReportResponse getMonthlyReport(
@@ -34,15 +42,21 @@ public class MonthlyReportService {
             int month
     ) {
 
-        User user = userRepository.findById(userId)
-                .orElseThrow(() ->
-                        new IllegalArgumentException(
-                                "해당 유저를 찾을 수 없습니다."
-                        )
-                );
+        User user =
+                userRepository.findById(userId)
+                        .orElseThrow(() ->
+                                new IllegalArgumentException(
+                                        "해당 유저를 찾을 수 없습니다."
+                                )
+                        );
+
 
         YearMonth yearMonth =
-                YearMonth.of(year, month);
+                YearMonth.of(
+                        year,
+                        month
+                );
+
 
         LocalDate startDate =
                 yearMonth.atDay(1);
@@ -50,6 +64,10 @@ public class MonthlyReportService {
         LocalDate endDate =
                 yearMonth.atEndOfMonth();
 
+
+        /*
+         * 계산값
+         */
         List<ExposureRecord> records =
                 exposureRecordRepository
                         .findByUserAndDateBetweenOrderByDateAsc(
@@ -58,17 +76,44 @@ public class MonthlyReportService {
                                 endDate
                         );
 
+
+        /*
+         * 날짜별 OUTING / INDOOR 상태
+         *
+         * 월말 리포트의 외출 여부는
+         * ExposureRecord.isOuting이 아니라
+         * DailyOuting을 최종 기준으로 사용한다.
+         */
+        List<DailyOuting> outings =
+                dailyOutingRepository
+                        .findByUserAndDateBetweenOrderByDateAsc(
+                                user,
+                                startDate,
+                                endDate
+                        );
+
+
         MonthlyReportResponse.Summary summary =
-                createSummary(records);
+                createSummary(
+                        records,
+                        outings
+                );
+
 
         MonthlyReportResponse.RouteRanking routeRanking =
-                createRouteRanking(records);
+                createRouteRanking(
+                        records,
+                        outings
+                );
+
 
         List<MonthlyReportResponse.DailyExposure> dailyExposure =
                 createDailyExposure(
                         yearMonth,
-                        records
+                        records,
+                        outings
                 );
+
 
         MonthlyReportResponse.Trend trend =
                 createTrend(
@@ -76,8 +121,13 @@ public class MonthlyReportService {
                         yearMonth
                 );
 
+
         MonthlyReportResponse.Analysis analysis =
-                createAnalysis(records);
+                createAnalysis(
+                        records,
+                        outings
+                );
+
 
         MonthlyReportResponse.NextMonthForecast nextMonthForecast =
                 createNextMonthForecast(
@@ -86,12 +136,14 @@ public class MonthlyReportService {
                         records
                 );
 
+
         MonthlyReportResponse.Clinic clinic =
                 createClinic(
                         user,
                         yearMonth,
                         nextMonthForecast
                 );
+
 
         return new MonthlyReportResponse(
                 year,
@@ -107,32 +159,70 @@ public class MonthlyReportService {
     }
 
 
-    // =========================
+    // ==========================================
     // SUMMARY
-    // =========================
+    // ==========================================
 
     private MonthlyReportResponse.Summary createSummary(
-            List<ExposureRecord> records
+            List<ExposureRecord> records,
+            List<DailyOuting> outings
     ) {
 
         double equivalentDays =
                 records.stream()
-                        .filter(ExposureRecord::isOuting)
-                        .map(ExposureRecord::getKoreaComparison)
-                        .filter(Objects::nonNull)
-                        .mapToDouble(Double::doubleValue)
+
+                        .filter(record ->
+                                isOuting(
+                                        record,
+                                        outings
+                                )
+                        )
+
+                        .map(
+                                ExposureRecord::getKoreaComparison
+                        )
+
+                        .filter(
+                                Objects::nonNull
+                        )
+
+                        .mapToDouble(
+                                Double::doubleValue
+                        )
+
                         .sum();
+
 
         int outingMinutes =
                 records.stream()
-                        .filter(ExposureRecord::isOuting)
-                        .map(ExposureRecord::getSunlightMinutes)
-                        .filter(Objects::nonNull)
-                        .mapToInt(Integer::intValue)
+
+                        .filter(record ->
+                                isOuting(
+                                        record,
+                                        outings
+                                )
+                        )
+
+                        .map(
+                                ExposureRecord::getSunlightMinutes
+                        )
+
+                        .filter(
+                                Objects::nonNull
+                        )
+
+                        .mapToInt(
+                                Integer::intValue
+                        )
+
                         .sum();
 
+
         return new MonthlyReportResponse.Summary(
-                (int) Math.round(equivalentDays),
+                (int) Math.round(
+                        equivalentDays
+                ),
+
                 (int) Math.round(
                         outingMinutes / 60.0
                 )
@@ -140,35 +230,72 @@ public class MonthlyReportService {
     }
 
 
-    // =========================
+    // ==========================================
     // ROUTE RANKING
-    // =========================
+    // ==========================================
 
     private MonthlyReportResponse.RouteRanking createRouteRanking(
-            List<ExposureRecord> records
+            List<ExposureRecord> records,
+            List<DailyOuting> outings
     ) {
 
         Map<String, List<ExposureRecord>> grouped =
                 records.stream()
-                        .filter(ExposureRecord::isOuting)
-                        .filter(record -> record.getSchedule() != null)
+
+                        .filter(record ->
+                                isOuting(
+                                        record,
+                                        outings
+                                )
+                        )
+
+                        /*
+                         * 일정 없는 대기일은
+                         * 노선 랭킹에서 제외
+                         */
+                        .filter(record ->
+                                record.getSchedule() != null
+                        )
+
                         .collect(
                                 Collectors.groupingBy(
                                         ExposureRecord::getAirportCode
                                 )
                         );
 
+
         double totalScore =
                 records.stream()
-                        .filter(ExposureRecord::isOuting)
-                        .filter(record -> record.getSchedule() != null)
-                        .map(ExposureRecord::getEstimatedExposureScore)
-                        .filter(Objects::nonNull)
-                        .mapToDouble(Double::doubleValue)
+
+                        .filter(record ->
+                                isOuting(
+                                        record,
+                                        outings
+                                )
+                        )
+
+                        .filter(record ->
+                                record.getSchedule() != null
+                        )
+
+                        .map(
+                                ExposureRecord::getEstimatedExposureScore
+                        )
+
+                        .filter(
+                                Objects::nonNull
+                        )
+
+                        .mapToDouble(
+                                Double::doubleValue
+                        )
+
                         .sum();
+
 
         List<MonthlyReportResponse.Ranking> rankings =
                 new ArrayList<>();
+
 
         for (Map.Entry<String, List<ExposureRecord>> entry
                 : grouped.entrySet()) {
@@ -176,41 +303,74 @@ public class MonthlyReportService {
             String airportCode =
                     entry.getKey();
 
+
             List<ExposureRecord> routeRecords =
                     entry.getValue();
 
+
             double routeScore =
                     routeRecords.stream()
-                            .map(ExposureRecord::getEstimatedExposureScore)
-                            .filter(Objects::nonNull)
-                            .mapToDouble(Double::doubleValue)
+
+                            .map(
+                                    ExposureRecord::getEstimatedExposureScore
+                            )
+
+                            .filter(
+                                    Objects::nonNull
+                            )
+
+                            .mapToDouble(
+                                    Double::doubleValue
+                            )
+
                             .sum();
+
 
             int percentage =
                     totalScore <= 0
+
                             ? 0
+
                             : (int) Math.round(
                             routeScore
                             / totalScore
                             * 100
                     );
 
+
             long count =
                     routeRecords.stream()
-                            .map(ExposureRecord::getSchedule)
-                            .filter(Objects::nonNull)
-                            .map(Schedule::getId)
+
+                            .map(
+                                    ExposureRecord::getSchedule
+                            )
+
+                            .filter(
+                                    Objects::nonNull
+                            )
+
+                            .map(
+                                    Schedule::getId
+                            )
+
                             .distinct()
+
                             .count();
+
 
             rankings.add(
                     new MonthlyReportResponse.Ranking(
-                            getCityName(airportCode),
+                            getCityName(
+                                    airportCode
+                            ),
+
                             (int) count,
+
                             percentage
                     )
             );
         }
+
 
         rankings.sort(
                 Comparator.comparingInt(
@@ -220,7 +380,9 @@ public class MonthlyReportService {
                         .reversed()
         );
 
+
         String insightMessage;
+
 
         if (rankings.isEmpty()) {
 
@@ -232,12 +394,14 @@ public class MonthlyReportService {
             MonthlyReportResponse.Ranking top =
                     rankings.get(0);
 
+
             insightMessage =
                     top.route()
                             + " 노선의 자외선 노출 비중이 "
                             + top.percentage()
                             + "%로 가장 높았어요.";
         }
+
 
         return new MonthlyReportResponse.RouteRanking(
                 insightMessage,
@@ -246,68 +410,122 @@ public class MonthlyReportService {
     }
 
 
-    // =========================
+    // ==========================================
     // DAILY EXPOSURE
-    // =========================
+    // ==========================================
 
     private List<MonthlyReportResponse.DailyExposure>
     createDailyExposure(
             YearMonth yearMonth,
-            List<ExposureRecord> records
+            List<ExposureRecord> records,
+            List<DailyOuting> outings
     ) {
 
         List<MonthlyReportResponse.DailyExposure> result =
                 new ArrayList<>();
 
-        for (int day = 1;
-             day <= yearMonth.lengthOfMonth();
-             day++) {
 
-            int currentDay = day;
+        for (
+                int day = 1;
+                day <= yearMonth.lengthOfMonth();
+                day++
+        ) {
+
+            int currentDay =
+                    day;
+
 
             List<ExposureRecord> dayRecords =
                     records.stream()
+
                             .filter(record ->
                                     record.getDate()
                                             .getDayOfMonth()
                                             == currentDay
                             )
+
                             .toList();
 
+
+            /*
+             * 해당 날짜에서 OUTING으로 판정되는 기록
+             */
             double outingScore =
                     dayRecords.stream()
-                            .filter(ExposureRecord::isOuting)
-                            .map(ExposureRecord::getEstimatedExposureScore)
-                            .filter(Objects::nonNull)
-                            .mapToDouble(Double::doubleValue)
+
+                            .filter(record ->
+                                    isOuting(
+                                            record,
+                                            outings
+                                    )
+                            )
+
+                            .map(
+                                    ExposureRecord::getEstimatedExposureScore
+                            )
+
+                            .filter(
+                                    Objects::nonNull
+                            )
+
+                            .mapToDouble(
+                                    Double::doubleValue
+                            )
+
                             .sum();
 
+
+            /*
+             * 해당 날짜에서 INDOOR로 판정되는 기록
+             */
             double indoorScore =
                     dayRecords.stream()
+
                             .filter(record ->
-                                    !record.isOuting()
+                                    !isOuting(
+                                            record,
+                                            outings
+                                    )
                             )
-                            .map(ExposureRecord::getEstimatedExposureScore)
-                            .filter(Objects::nonNull)
-                            .mapToDouble(Double::doubleValue)
+
+                            .map(
+                                    ExposureRecord::getEstimatedExposureScore
+                            )
+
+                            .filter(
+                                    Objects::nonNull
+                            )
+
+                            .mapToDouble(
+                                    Double::doubleValue
+                            )
+
                             .sum();
+
 
             result.add(
                     new MonthlyReportResponse.DailyExposure(
                             day,
-                            (int) Math.round(outingScore),
-                            (int) Math.round(indoorScore)
+
+                            (int) Math.round(
+                                    outingScore
+                            ),
+
+                            (int) Math.round(
+                                    indoorScore
+                            )
                     )
             );
         }
+
 
         return result;
     }
 
 
-    // =========================
+    // ==========================================
     // TREND
-    // =========================
+    // ==========================================
 
     private MonthlyReportResponse.Trend createTrend(
             User user,
@@ -317,47 +535,96 @@ public class MonthlyReportService {
         List<MonthlyReportResponse.MonthValue> months =
                 new ArrayList<>();
 
+
         List<Double> values =
                 new ArrayList<>();
+
 
         for (int i = 2; i >= 0; i--) {
 
             YearMonth target =
-                    currentMonth.minusMonths(i);
+                    currentMonth.minusMonths(
+                            i
+                    );
+
+
+            LocalDate start =
+                    target.atDay(1);
+
+            LocalDate end =
+                    target.atEndOfMonth();
+
 
             List<ExposureRecord> records =
                     exposureRecordRepository
                             .findByUserAndDateBetweenOrderByDateAsc(
                                     user,
-                                    target.atDay(1),
-                                    target.atEndOfMonth()
+                                    start,
+                                    end
                             );
+
+
+            List<DailyOuting> outings =
+                    dailyOutingRepository
+                            .findByUserAndDateBetweenOrderByDateAsc(
+                                    user,
+                                    start,
+                                    end
+                            );
+
 
             double score =
                     records.stream()
-                            .filter(ExposureRecord::isOuting)
-                            .map(ExposureRecord::getEstimatedExposureScore)
-                            .filter(Objects::nonNull)
-                            .mapToDouble(Double::doubleValue)
+
+                            .filter(record ->
+                                    isOuting(
+                                            record,
+                                            outings
+                                    )
+                            )
+
+                            .map(
+                                    ExposureRecord::getEstimatedExposureScore
+                            )
+
+                            .filter(
+                                    Objects::nonNull
+                            )
+
+                            .mapToDouble(
+                                    Double::doubleValue
+                            )
+
                             .sum();
 
-            values.add(score);
+
+            values.add(
+                    score
+            );
+
 
             months.add(
                     new MonthlyReportResponse.MonthValue(
                             target.getMonthValue(),
-                            (int) Math.round(score)
+
+                            (int) Math.round(
+                                    score
+                            )
                     )
             );
         }
 
+
         double previous =
                 values.get(0);
+
 
         double current =
                 values.get(2);
 
+
         String comparisonText;
+
 
         if (previous <= 0) {
 
@@ -368,25 +635,34 @@ public class MonthlyReportService {
 
             int percentage =
                     (int) Math.round(
-                            ((current - previous)
-                                    / previous)
+                            (
+                                    (current - previous)
+                                            / previous
+                            )
                                     * 100
                     );
+
 
             String sign =
                     percentage >= 0
                             ? "+"
                             : "";
 
+
             comparisonText =
                     currentMonth
                             .minusMonths(2)
                             .getMonthValue()
+
                             + "월 대비 "
+
                             + sign
+
                             + percentage
+
                             + "% 변화";
         }
+
 
         return new MonthlyReportResponse.Trend(
                 comparisonText,
@@ -395,28 +671,43 @@ public class MonthlyReportService {
     }
 
 
-    // =========================
+    // ==========================================
     // ANALYSIS
-    // =========================
+    // ==========================================
 
     private MonthlyReportResponse.Analysis createAnalysis(
-            List<ExposureRecord> records
+            List<ExposureRecord> records,
+            List<DailyOuting> outings
     ) {
 
         ExposureRecord strongest =
                 records.stream()
-                        .filter(ExposureRecord::isOuting)
+
+                        .filter(record ->
+                                isOuting(
+                                        record,
+                                        outings
+                                )
+                        )
+
                         .max(
                                 Comparator.comparingDouble(
                                         record ->
                                                 Optional.ofNullable(
-                                                        record.getEstimatedExposureScore()
-                                                ).orElse(0.0)
+                                                                record
+                                                                        .getEstimatedExposureScore()
+                                                        )
+                                                        .orElse(
+                                                                0.0
+                                                        )
                                 )
                         )
+
                         .orElse(null);
 
+
         MonthlyReportResponse.AnalysisItem strongestDay;
+
 
         if (strongest == null) {
 
@@ -430,108 +721,192 @@ public class MonthlyReportService {
         } else {
 
             String strongestTag =
-                    switch (strongest.getRiskLevel()) {
-                        case DANGER -> "위험";
-                        case CAUTION -> "주의";
-                        case SAFE -> "안전";
+                    switch (
+                            strongest.getRiskLevel()
+                            ) {
+
+                        case DANGER ->
+                                "위험";
+
+                        case CAUTION ->
+                                "주의";
+
+                        case SAFE ->
+                                "안전";
                     };
+
 
             strongestDay =
                     new MonthlyReportResponse.AnalysisItem(
-                            strongest.getDate().getMonthValue()
+
+                            strongest.getDate()
+                                    .getMonthValue()
+
                                     + "/"
-                                    + strongest.getDate().getDayOfMonth()
+
+                                    + strongest.getDate()
+                                    .getDayOfMonth()
+
                                     + " "
+
                                     + getCityName(
-                                    strongest.getAirportCode()
+                                    strongest
+                                            .getAirportCode()
                             ),
 
+
                             "서울 기준 약 "
+
                                     + roundOne(
-                                    strongest.getKoreaComparison()
+                                    strongest
+                                            .getKoreaComparison()
                             )
+
                                     + "배 수준, UV 지수 "
-                                    + strongest.getUvIndex(),
+
+                                    + strongest
+                                    .getUvIndex(),
+
 
                             strongestTag
                     );
         }
 
+
+        // ==========================================
+        // 위험한 날 미대응
+        // ==========================================
+
         List<ExposureRecord> missed =
                 records.stream()
-                        .filter(ExposureRecord::isOuting)
+
+                        .filter(record ->
+                                isOuting(
+                                        record,
+                                        outings
+                                )
+                        )
+
                         .filter(record ->
                                 record.getRiskLevel()
                                         == RiskLevel.DANGER
                         )
+
                         .filter(record ->
                                 record.getSchedule() != null
-                                        && !record.getSchedule()
+
+                                        && !record
+                                        .getSchedule()
                                         .isApplied()
                         )
+
                         .toList();
+
 
         String missedTitle =
                 missed.isEmpty()
+
                         ? "없음"
+
                         : missed.stream()
+
                         .map(record ->
                              record.getDate()
                                      .getMonthValue()
+
                              + "/"
+
                              + record.getDate()
                                      .getDayOfMonth()
                         )
+
                         .distinct()
+
                         .collect(
-                                Collectors.joining(", ")
+                                Collectors.joining(
+                                        ", "
+                                )
                         );
+
 
         MonthlyReportResponse.AnalysisItem missedDays =
                 new MonthlyReportResponse.AnalysisItem(
+
                         missedTitle,
+
                         missed.isEmpty()
                                 ? "위험한 날의 미대응 기록이 없습니다."
                                 : "위험한 날이었지만 제품 선택 기록이 없습니다.",
+
                         null
                 );
 
+
+        // ==========================================
+        // 대응 완료
+        // ==========================================
+
         List<ExposureRecord> good =
                 records.stream()
-                        .filter(ExposureRecord::isOuting)
+
+                        .filter(record ->
+                                isOuting(
+                                        record,
+                                        outings
+                                )
+                        )
+
                         .filter(record ->
                                 record.getSchedule() != null
-                                        && record.getSchedule()
+
+                                        && record
+                                        .getSchedule()
                                         .isApplied()
                         )
+
                         .toList();
+
 
         String goodTitle =
                 good.isEmpty()
+
                         ? "없음"
+
                         : good.stream()
+
                         .map(record ->
                              record.getDate()
                                      .getMonthValue()
+
                              + "/"
+
                              + record.getDate()
                                      .getDayOfMonth()
                         )
+
                         .distinct()
+
                         .collect(
-                                Collectors.joining(", ")
+                                Collectors.joining(
+                                        ", "
+                                )
                         );
+
 
         MonthlyReportResponse.AnalysisItem goodDays =
                 new MonthlyReportResponse.AnalysisItem(
+
                         goodTitle,
+
                         good.isEmpty()
                                 ? "아직 자외선 대응 기록이 없습니다."
                                 : "자외선 환경에 맞춰 제품을 선택하고 대응했어요.",
+
                         good.isEmpty()
                                 ? null
                                 : "대응 완료"
                 );
+
 
         return new MonthlyReportResponse.Analysis(
                 strongestDay,
@@ -541,9 +916,9 @@ public class MonthlyReportService {
     }
 
 
-    // =========================
+    // ==========================================
     // NEXT MONTH
-    // =========================
+    // ==========================================
 
     private MonthlyReportResponse.NextMonthForecast
     createNextMonthForecast(
@@ -553,17 +928,24 @@ public class MonthlyReportService {
     ) {
 
         YearMonth nextMonth =
-                currentMonth.plusMonths(1);
+                currentMonth.plusMonths(
+                        1
+                );
+
 
         LocalDateTime start =
-                nextMonth.atDay(1)
+                nextMonth
+                        .atDay(1)
                         .atStartOfDay();
 
+
         LocalDateTime end =
-                nextMonth.plusMonths(1)
+                nextMonth
+                        .plusMonths(1)
                         .atDay(1)
                         .atStartOfDay()
                         .minusNanos(1);
+
 
         List<Schedule> schedules =
                 scheduleRepository
@@ -573,8 +955,10 @@ public class MonthlyReportService {
                                 end
                         );
 
+
         Map<String, Long> routeCounts =
                 schedules.stream()
+
                         .collect(
                                 Collectors.groupingBy(
                                         Schedule::getArrivalAirport,
@@ -582,37 +966,63 @@ public class MonthlyReportService {
                                 )
                         );
 
+
         List<String> scheduledRoutes =
-                routeCounts.entrySet()
+                routeCounts
+                        .entrySet()
                         .stream()
+
                         .sorted(
                                 Map.Entry
                                         .<String, Long>comparingByValue()
                                         .reversed()
                         )
+
                         .map(entry ->
                                 getCityName(
                                         entry.getKey()
                                 )
+
                                         + " "
+
                                         + entry.getValue()
+
                                         + "회"
                         )
+
                         .toList();
+
 
         long currentScheduleCount =
                 currentRecords.stream()
-                        .map(ExposureRecord::getSchedule)
-                        .filter(Objects::nonNull)
-                        .map(Schedule::getId)
+
+                        .map(
+                                ExposureRecord::getSchedule
+                        )
+
+                        .filter(
+                                Objects::nonNull
+                        )
+
+                        .map(
+                                Schedule::getId
+                        )
+
                         .distinct()
+
                         .count();
+
 
         double multiplier;
 
+
         if (currentScheduleCount == 0) {
-            multiplier = 0.0;
+
+            multiplier =
+                    0.0;
+
         } else {
+
             multiplier =
                     roundOne(
                             schedules.size()
@@ -620,12 +1030,16 @@ public class MonthlyReportService {
                     );
         }
 
+
         String recoveryPeriod =
                 findLongestRecoveryPeriod(
                         nextMonth,
                         schedules,
-                        String.valueOf(user.getBaseAirport())
+                        String.valueOf(
+                                user.getBaseAirport()
+                        )
                 );
+
 
         String tip;
 
@@ -642,19 +1056,19 @@ public class MonthlyReportService {
                             + " 기간을 피부 회복 일정으로 활용할 수 있어요.";
         }
 
+
         return new MonthlyReportResponse.NextMonthForecast(
                 multiplier,
                 scheduledRoutes,
                 recoveryPeriod,
                 tip
         );
-
     }
 
 
-    // =========================
+    // ==========================================
     // CLINIC
-    // =========================
+    // ==========================================
 
     private MonthlyReportResponse.Clinic createClinic(
             User user,
@@ -662,16 +1076,16 @@ public class MonthlyReportService {
             MonthlyReportResponse.NextMonthForecast forecast
     ) {
 
-        // 조회 월 포함 최근 3개월
-        // 예: 2026-08 조회 → 6/1 ~ 8/31
         LocalDate threeMonthsStart =
                 currentMonth
                         .minusMonths(2)
                         .atDay(1);
 
+
         LocalDate threeMonthsEnd =
                 currentMonth
                         .atEndOfMonth();
+
 
         List<ExposureRecord> threeMonthRecords =
                 exposureRecordRepository
@@ -681,36 +1095,80 @@ public class MonthlyReportService {
                                 threeMonthsEnd
                         );
 
+
+        /*
+         * 클리닉 계산도 DailyOuting 반영
+         */
+        List<DailyOuting> threeMonthOutings =
+                dailyOutingRepository
+                        .findByUserAndDateBetweenOrderByDateAsc(
+                                user,
+                                threeMonthsStart,
+                                threeMonthsEnd
+                        );
+
+
         double cumulativeComparison =
                 threeMonthRecords.stream()
-                        .filter(ExposureRecord::isOuting)
-                        .map(ExposureRecord::getKoreaComparison)
-                        .filter(Objects::nonNull)
-                        .mapToDouble(Double::doubleValue)
+
+                        .filter(record ->
+                                isOuting(
+                                        record,
+                                        threeMonthOutings
+                                )
+                        )
+
+                        .map(
+                                ExposureRecord::getKoreaComparison
+                        )
+
+                        .filter(
+                                Objects::nonNull
+                        )
+
+                        .mapToDouble(
+                                Double::doubleValue
+                        )
+
                         .sum();
+
 
         int exposurePercentage =
                 (int) Math.min(
                         100,
+
                         Math.round(
-                                cumulativeComparison*10
+                                cumulativeComparison
+                                        * 10
                         )
                 );
 
+
         String level;
 
+
         if (exposurePercentage >= 75) {
-            level = "상위 구간";
+
+            level =
+                    "상위 구간";
+
         } else if (exposurePercentage >= 50) {
-            level = "중간 구간";
+
+            level =
+                    "중간 구간";
+
         } else {
-            level = "낮은 구간";
+
+            level =
+                    "낮은 구간";
         }
+
 
         String description =
                 "최근 3개월 누적 자외선 노출 수준이 "
                         + level
                         + "으로 분석되었습니다.";
+
 
         if (forecast.recoveryPeriod() != null) {
 
@@ -719,6 +1177,7 @@ public class MonthlyReportService {
                             + forecast.recoveryPeriod()
                             + " 기간이 있어 피부 회복 시간을 확보할 수 있습니다.";
         }
+
 
         return new MonthlyReportResponse.Clinic(
                 level,
@@ -729,9 +1188,54 @@ public class MonthlyReportService {
     }
 
 
-    // =========================
+    // ==========================================
+    // OUTING 판단
+    // ==========================================
+
+    private boolean isOuting(
+            ExposureRecord record,
+            List<DailyOuting> outings
+    ) {
+
+        /*
+         * 1순위:
+         * 사용자가 날짜별 토글을 한 기록
+         */
+        Optional<DailyOuting> dailyOuting =
+                outings.stream()
+
+                        .filter(item ->
+                                item.getDate()
+                                        .equals(
+                                                record.getDate()
+                                        )
+                        )
+
+                        .findFirst();
+
+
+        if (dailyOuting.isPresent()) {
+
+            return dailyOuting
+                    .get()
+                    .isOuting();
+        }
+
+
+        /*
+         * 토글 기록이 아직 없는 경우 기본값
+         *
+         * 일정 있는 날  → OUTING
+         * 일정 없는 날 → INDOOR
+         */
+        return record.getSchedule()
+                != null;
+    }
+
+
+    // ==========================================
     // HELPERS
-    // =========================
+    // ==========================================
 
     private String getCityName(
             String airportCode
@@ -751,18 +1255,22 @@ public class MonthlyReportService {
         }
     }
 
+
     private double roundOne(
             Double value
     ) {
 
         if (value == null) {
+
             return 0.0;
         }
+
 
         return Math.round(
                 value * 10.0
         ) / 10.0;
     }
+
 
     private String findLongestRecoveryPeriod(
             YearMonth month,
@@ -771,12 +1279,19 @@ public class MonthlyReportService {
     ) {
 
         String airportName =
-                getAirportDisplayName(baseAirport);
+                getAirportDisplayName(
+                        baseAirport
+                );
+
 
         if (schedules.isEmpty()) {
 
-            LocalDate start = month.atDay(1);
-            LocalDate end = month.atEndOfMonth();
+            LocalDate start =
+                    month.atDay(1);
+
+            LocalDate end =
+                    month.atEndOfMonth();
+
 
             return formatRecoveryPeriod(
                     start,
@@ -785,76 +1300,119 @@ public class MonthlyReportService {
             );
         }
 
+
         List<LocalDate> flightDates =
                 schedules.stream()
+
                         .flatMap(schedule ->
                                 List.of(
-                                        schedule.getDepartureTime()
-                                                .toLocalDate(),
-                                        schedule.getArrivalTime()
-                                                .toLocalDate()
-                                ).stream()
+                                                schedule.getDepartureTime()
+                                                        .toLocalDate(),
+
+                                                schedule.getArrivalTime()
+                                                        .toLocalDate()
+                                        )
+                                        .stream()
                         )
+
                         .distinct()
+
                         .sorted()
+
                         .toList();
+
 
         LocalDate monthStart =
                 month.atDay(1);
 
+
         LocalDate monthEnd =
                 month.atEndOfMonth();
 
-        LocalDate bestStart = null;
-        LocalDate bestEnd = null;
+
+        LocalDate bestStart =
+                null;
+
+        LocalDate bestEnd =
+                null;
+
 
         LocalDate currentStart =
                 monthStart;
 
+
         for (LocalDate flightDate : flightDates) {
 
             LocalDate gapEnd =
-                    flightDate.minusDays(1);
+                    flightDate.minusDays(
+                            1
+                    );
 
-            if (!gapEnd.isBefore(currentStart)) {
 
-                if (bestStart == null
-                        || daysBetween(
-                        currentStart,
-                        gapEnd
-                ) > daysBetween(
-                        bestStart,
-                        bestEnd
-                )) {
+            if (!gapEnd.isBefore(
+                    currentStart
+            )) {
 
-                    bestStart = currentStart;
-                    bestEnd = gapEnd;
+                if (
+                        bestStart == null
+
+                                || daysBetween(
+                                currentStart,
+                                gapEnd
+                        )
+                                > daysBetween(
+                                bestStart,
+                                bestEnd
+                        )
+                ) {
+
+                    bestStart =
+                            currentStart;
+
+                    bestEnd =
+                            gapEnd;
                 }
             }
 
+
             currentStart =
-                    flightDate.plusDays(1);
+                    flightDate.plusDays(
+                            1
+                    );
         }
 
-        if (!currentStart.isAfter(monthEnd)) {
 
-            if (bestStart == null
-                    || daysBetween(
-                    currentStart,
-                    monthEnd
-            ) > daysBetween(
-                    bestStart,
-                    bestEnd
-            )) {
+        if (!currentStart.isAfter(
+                monthEnd
+        )) {
 
-                bestStart = currentStart;
-                bestEnd = monthEnd;
+            if (
+                    bestStart == null
+
+                            || daysBetween(
+                            currentStart,
+                            monthEnd
+                    )
+                            > daysBetween(
+                            bestStart,
+                            bestEnd
+                    )
+            ) {
+
+                bestStart =
+                        currentStart;
+
+                bestEnd =
+                        monthEnd;
             }
         }
 
+
         if (bestStart == null) {
+
             return null;
         }
+
 
         return formatRecoveryPeriod(
                 bestStart,
@@ -862,6 +1420,7 @@ public class MonthlyReportService {
                 airportName
         );
     }
+
 
     private long daysBetween(
             LocalDate start,
@@ -873,52 +1432,86 @@ public class MonthlyReportService {
                 .between(
                         start,
                         end
-                ) + 1;
+                )
+                + 1;
     }
+
+
     private String formatRecoveryPeriod(
             LocalDate start,
             LocalDate end,
             String airportName
     ) {
 
-        if (start.getMonthValue()
-                == end.getMonthValue()) {
+        if (
+                start.getMonthValue()
+                        == end.getMonthValue()
+        ) {
 
             return start.getMonthValue()
+
                     + "/"
+
                     + start.getDayOfMonth()
+
                     + "~"
+
                     + end.getDayOfMonth()
+
                     + " "
+
                     + airportName
+
                     + " 대기";
         }
 
+
         return start.getMonthValue()
+
                 + "/"
+
                 + start.getDayOfMonth()
+
                 + "~"
+
                 + end.getMonthValue()
+
                 + "/"
+
                 + end.getDayOfMonth()
+
                 + " "
+
                 + airportName
+
                 + " 대기";
     }
+
 
     private String getAirportDisplayName(
             String airportCode
     ) {
 
         if (airportCode == null) {
+
             return "국내";
         }
 
-        return switch (airportCode.toUpperCase()) {
-            case "ICN", "INCHEON" -> "인천";
-            case "GMP", "GIMPO" -> "김포";
-            default -> airportCode;
+
+        return switch (
+                airportCode.toUpperCase()
+                ) {
+
+            case "ICN",
+                 "INCHEON" ->
+                    "인천";
+
+            case "GMP",
+                 "GIMPO" ->
+                    "김포";
+
+            default ->
+                    airportCode;
         };
     }
-
 }

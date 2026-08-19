@@ -1,6 +1,7 @@
 package com.hackthon.hackathon.controller;
 
 import com.hackthon.hackathon.dto.SolutionAiResponse;
+import com.hackthon.hackathon.dto.SolutionGenerateRequest;
 import com.hackthon.hackathon.dto.WeatherResponse;
 import com.hackthon.hackathon.dto.home.HomeUvResponse;
 import com.hackthon.hackathon.dto.today.TodayResponse;
@@ -8,15 +9,16 @@ import com.hackthon.hackathon.entity.Schedule;
 import com.hackthon.hackathon.entity.User;
 import com.hackthon.hackathon.repository.UserRepository;
 import com.hackthon.hackathon.service.*;
+import com.hackthon.hackathon.util.TimeZoneUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PatchMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 import com.hackthon.hackathon.dto.today.TodayOutingRequest;
 import com.hackthon.hackathon.dto.today.TodayOutingResponse;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -37,7 +39,7 @@ public class TodayController {
     private final TodayOutingService todayOutingService;
 
     @GetMapping("/today")
-    public ResponseEntity<TodayResponse> getToday() {
+    public ResponseEntity<TodayResponse> getToday(ZoneId zoneId) {
 
         Long userId = 1L;
 
@@ -68,6 +70,12 @@ public class TodayController {
 
         String airportCode =
                 scheduleInfo.airportCode();
+        System.out.println(
+                "[TODAY] baseAirport="
+                        + user.getBaseAirport()
+                        + ", airportCode="
+                        + airportCode
+        );
 
 
         // =========================
@@ -84,6 +92,21 @@ public class TodayController {
         // 4. 외출 가능 시간
         // =========================
 
+        Schedule currentSchedule =
+                scheduleInfo.schedule();
+
+        LocalDateTime nowUtc =
+                LocalDateTime.now(ZoneOffset.UTC);
+
+        boolean isInFlight =
+                currentSchedule != null
+                        && !nowUtc.isBefore(
+                                currentSchedule.getDepartureTime()
+                        )
+                        && nowUtc.isBefore(
+                                currentSchedule.getArrivalTime()
+                        );
+
         SunlightWindowService.AvailableWindow availableWindow;
 
         if (scheduleInfo.baseDay()) {
@@ -97,8 +120,28 @@ public class TodayController {
             availableWindow =
                     sunlightWindowService
                             .calculateBaseDayAvailableWindow(
-                                    LocalDate.now()
+                                    scheduleInfo.localDate()
                             );
+
+        } else if (isInFlight) {
+
+            /*
+             * 비행 중에는 레이오버 계산을 사용하지 않고
+             * 현재 위치 현지시각부터 30분을 기내 노출 구간으로 계산한다.
+             */
+            LocalDateTime localNow =
+                    TimeZoneUtil.fromUtc(
+                            nowUtc,
+                            airportCode
+                    );
+
+            availableWindow =
+                    new SunlightWindowService.AvailableWindow(
+                            localNow,
+                            localNow.plusMinutes(
+                                    DEFAULT_FLIGHT_EXPOSURE_MINUTES
+                            )
+                    );
 
         } else {
 
@@ -195,24 +238,21 @@ public class TodayController {
                     .saveOrUpdateBaseDay(
                             user,
                             airportCode,
-                            LocalDate.now(),
+                            scheduleInfo.localDate(),
                             scheduleInfo.outing(),
                             exposureResult,
                             homeResponse.weatherCondition()
                     );
 
         } else {
-
-            Schedule currentSchedule =
-                    scheduleInfo.schedule();
-
             if (currentSchedule != null) {
 
                 exposureRecordService
                         .saveOrUpdate(
                                 currentSchedule,
                                 airportCode,
-                                LocalDate.now(),
+                                scheduleInfo.localDate(),
+                                scheduleInfo.outing(),
                                 exposureResult,
                                 homeResponse.weatherCondition()
                         );
@@ -225,10 +265,18 @@ public class TodayController {
         // =========================
 
         String position;
-
         if (scheduleInfo.baseDay()) {
 
             position = "대기";
+
+        } else if (currentSchedule != null
+                && nowUtc.isBefore(
+                        currentSchedule.getDepartureTime()
+                )) {
+            position = "대기";
+        } else if (isInFlight) {
+
+            position = "비행중";
 
         } else if (scheduleInfo.quickTurn()) {
 
@@ -254,7 +302,10 @@ public class TodayController {
                 new TodayResponse.LocationInfo(
                         homeResponse.city(),
                         homeResponse.country(),
-                        exposureResult.riskLevel()
+                        exposureCalculationService
+                                .calculateRiskLevel(
+                                        homeResponse.uvIndex()
+                                )
                 );
 
 
@@ -322,44 +373,8 @@ public class TodayController {
 
 
         // =========================
-        // 13. INDOOR
-        // =========================
-
-        if (!scheduleInfo.outing()) {
-
-            TodayResponse response =
-                    new TodayResponse(
-                            "INDOOR",
-                            userInfo,
-                            location,
-                            homeResponse.currentTime(),
-                            uvSummary,
-                            null,
-                            List.of()
-                    );
-
-            return ResponseEntity.ok(
-                    response
-            );
-        }
-
-
-        // =========================
-        // 14. OUTING AI
-        // =========================
-
-        SolutionAiResponse solution =
-                solutionAiService.generateSolution(
-                        userId,
-                        homeResponse.uvIndex(),
-                        homeResponse.sunlightMinutes(),
-                        homeResponse.weatherCondition()
-                );
-
-
-        // =========================
-        // 15. PRODUCTS
-        // =========================
+// 13. PRODUCTS 기본 생성
+// =========================
 
         List<TodayResponse.Product> products =
                 homeResponse.sunscreens()
@@ -374,6 +389,7 @@ public class TodayController {
                                             case ORGANIC -> "유기자차";
                                             case MIXED -> "혼합자차";
                                         },
+                                        item.productType().name(),
 
                                         Integer.parseInt(
                                                 item.displayedSpf()
@@ -382,6 +398,90 @@ public class TodayController {
                                                                 ""
                                                         )
                                         ),
+
+                                        // INDOOR 기본값
+                                        false
+                                )
+                        )
+                        .toList();
+
+
+// =========================
+// 14. INDOOR
+// =========================
+
+        if (!scheduleInfo.outing()) {
+
+            TodayResponse.SunProtection indoorSunProtection =
+                    new TodayResponse.SunProtection(
+                            List.of(),
+                            products,
+                            null
+                    );
+
+            TodayResponse response =
+                    new TodayResponse(
+                            "INDOOR",
+                            userInfo,
+                            location,
+                            homeResponse.currentTime(),
+                            uvSummary,
+
+                            // 이제 null 아님
+                            indoorSunProtection,
+
+                            // AI 솔루션은 없음
+                            List.of()
+                    );
+
+            return ResponseEntity.ok(
+                    response
+            );
+        }
+
+
+// =========================
+// 15. OUTING AI
+// =========================
+
+        SolutionAiResponse solution =
+                solutionAiService.generateSolution(
+                        userId,
+                        homeResponse.uvIndex(),
+                        isInFlight
+                                ? DEFAULT_FLIGHT_EXPOSURE_MINUTES
+                                : homeResponse.sunlightMinutes(),
+                        homeResponse.weatherCondition()
+                );
+
+
+// =========================
+// 16. OUTING PRODUCTS
+// =========================
+
+// OUTING에서는 AI 추천 제품에 recommended=true
+        products =
+                homeResponse.sunscreens()
+                        .stream()
+                        .map(item ->
+                                new TodayResponse.Product(
+                                        item.sunscreenId(),
+                                        item.name(),
+
+                                        switch (item.filterType()) {
+                                            case PHYSICAL -> "무기자차";
+                                            case ORGANIC -> "유기자차";
+                                            case MIXED -> "혼합자차";
+                                        },
+                                        item.productType().name(),
+                                        Integer.parseInt(
+                                                item.displayedSpf()
+                                                        .replaceAll(
+                                                                "[^0-9]",
+                                                                ""
+                                                        )
+                                        ),
+
 
                                         item.sunscreenId()
                                                 .equals(
@@ -392,9 +492,9 @@ public class TodayController {
                         .toList();
 
 
-        // =========================
-        // 16. TAGS
-        // =========================
+// =========================
+// 17. TAGS
+// =========================
 
         List<String> tags =
                 new ArrayList<>();
@@ -431,9 +531,9 @@ public class TodayController {
         }
 
 
-        // =========================
-        // 17. 선크림 추천
-        // =========================
+// =========================
+// 18. 선크림 추천 + AI SOLUTIONS
+// =========================
 
         TodayResponse.SunProtection sunProtection =
                 new TodayResponse.SunProtection(
@@ -441,11 +541,6 @@ public class TodayController {
                         products,
                         solution.message()
                 );
-
-
-        // =========================
-        // 18. AI SOLUTIONS
-        // =========================
 
         List<TodayResponse.Solution> todaySolutions =
                 solution.solutions()
@@ -510,5 +605,149 @@ public class TodayController {
 
             default -> "UNKNOWN";
         };
+    }
+    @PostMapping("/solutions/generate")
+    public ResponseEntity<SolutionAiResponse> generateSolution(
+            @RequestBody SolutionGenerateRequest request
+    ) {
+
+        Long userId = 1L;
+
+
+        TodayService.TodayScheduleInfo scheduleInfo =
+                todayService.getTodayScheduleInfo(
+                        userId
+                );
+
+        Schedule currentSchedule =
+                scheduleInfo.schedule();
+
+        LocalDateTime nowUtc =
+                LocalDateTime.now(ZoneOffset.UTC);
+
+        boolean isInFlight =
+                currentSchedule != null
+                        && !nowUtc.isBefore(
+                                currentSchedule.getDepartureTime()
+                        )
+                        && nowUtc.isBefore(
+                                currentSchedule.getArrivalTime()
+                        );
+
+
+        String airportCode =
+                scheduleInfo.airportCode();
+
+
+        var weather =
+                weatherService.getWeather(
+                        airportCode
+                );
+
+
+        SunlightWindowService.AvailableWindow availableWindow;
+
+
+        if (scheduleInfo.baseDay()) {
+
+            availableWindow =
+                    sunlightWindowService
+                            .calculateBaseDayAvailableWindow(
+                                    scheduleInfo.localDate()
+                            );
+
+        } else if (isInFlight) {
+
+            LocalDateTime localNow =
+                    TimeZoneUtil.fromUtc(
+                            nowUtc,
+                            airportCode
+                    );
+
+            availableWindow =
+                    new SunlightWindowService.AvailableWindow(
+                            localNow,
+                            localNow.plusMinutes(
+                                    DEFAULT_FLIGHT_EXPOSURE_MINUTES
+                            )
+                    );
+
+        } else {
+
+            availableWindow =
+                    sunlightWindowService
+                            .calculateAvailableWindow(
+                                    scheduleInfo.arrivalTime(),
+                                    scheduleInfo.nextDepartureTime(),
+                                    scheduleInfo.quickTurn()
+                            )
+                            .orElse(null);
+        }
+
+
+        List<SunlightWindowService.SunlightWindow> windows =
+                availableWindow == null
+                        ? List.of()
+                        : sunlightWindowService
+                        .calculateSunlightWindows(
+                                availableWindow,
+                                weather
+                        );
+
+
+        var seoulWeather =
+                weatherService.getSeoulWeather();
+
+
+        int sunlightMinutes =
+                windows.stream()
+                        .mapToInt(window ->
+                                (int) window.minutes()
+                        )
+                        .sum();
+
+
+        double seoulComparableExposureScore =
+                exposureCalculationService
+                        .calculateSeoulComparableExposureScore(
+                                seoulWeather,
+                                sunlightMinutes
+                        );
+
+
+        var exposureResult =
+                exposureCalculationService
+                        .calculateExposure(
+                                windows,
+                                weather,
+                                seoulComparableExposureScore
+                        );
+
+
+        HomeUvResponse homeResponse =
+                homeUvService.createTestHomeUv(
+                        userId,
+                        airportCode,
+                        exposureResult,
+                        windows
+                );
+
+
+        SolutionAiResponse response =
+                solutionAiService
+                        .generateSolutionForSunscreen(
+                                userId,
+                                request.sunscreenId(),
+                                homeResponse.uvIndex(),
+                                isInFlight
+                                        ? DEFAULT_FLIGHT_EXPOSURE_MINUTES
+                                        : homeResponse.sunlightMinutes(),
+                                homeResponse.weatherCondition()
+                        );
+
+
+        return ResponseEntity.ok(
+                response
+        );
     }
 }

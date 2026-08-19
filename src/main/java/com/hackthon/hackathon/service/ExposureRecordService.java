@@ -2,29 +2,35 @@ package com.hackthon.hackathon.service;
 
 import com.hackthon.hackathon.entity.ExposureRecord;
 import com.hackthon.hackathon.entity.Schedule;
+import com.hackthon.hackathon.entity.Sunscreen;
 import com.hackthon.hackathon.entity.User;
 import com.hackthon.hackathon.enums.LocationType;
 import com.hackthon.hackathon.repository.ExposureRecordRepository;
+import com.hackthon.hackathon.repository.SunscreenRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
 public class ExposureRecordService {
 
     private final ExposureRecordRepository exposureRecordRepository;
+    private final SunscreenRepository sunscreenRepository;
 
-    /**
-     * 비행/레이오버 일정이 있는 날
-     */
+    // ==========================================
+    // 일정 있는 날
+    // ==========================================
+
     @Transactional
     public void saveOrUpdate(
             Schedule schedule,
             String airportCode,
             LocalDate date,
+            boolean outing,
             ExposureCalculationService.ExposureResult result,
             String weatherCondition
     ) {
@@ -34,6 +40,13 @@ public class ExposureRecordService {
             return;
         }
 
+        // 실제 일정일이면 기존 소속공항 대기일 기록을 제거한다.
+        exposureRecordRepository
+                .deleteByUserAndDateAndScheduleIsNull(
+                        schedule.getUser(),
+                        date
+                );
+
         ExposureRecord record =
                 exposureRecordRepository
                         .findByScheduleAndDateAndLocationType(
@@ -42,6 +55,7 @@ public class ExposureRecordService {
                                 LocationType.ARRIVAL
                         )
                         .orElse(null);
+
 
         if (record == null) {
 
@@ -60,7 +74,10 @@ public class ExposureRecordService {
                             .averageUv(result.averageUv())
                             .sunlightEnd(result.sunlightEnd())
                             .sunlightMinutes(result.sunlightMinutes())
-                            .isOuting(schedule.isOuting())
+
+                            // 핵심: schedule.isOuting() 사용 X
+                            .isOuting(outing)
+
                             .estimatedExposureScore(
                                     result.estimatedExposureScore()
                             )
@@ -72,10 +89,13 @@ public class ExposureRecordService {
                             )
                             .build();
 
-            exposureRecordRepository.save(record);
+            exposureRecordRepository.save(
+                    record
+            );
 
             return;
         }
+
 
         record.updateCalculation(
                 airportCode,
@@ -87,19 +107,21 @@ public class ExposureRecordService {
                 result.averageUv(),
                 result.sunlightEnd(),
                 result.sunlightMinutes(),
-                schedule.isOuting(),
+
+                // 핵심
+                outing,
+
                 result.estimatedExposureScore(),
                 result.koreaComparison(),
                 weatherCondition
         );
     }
 
-    /**
-     * 비행 일정이 없는 소속공항 대기일
-     *
-     * schedule = null
-     * user + date 기준으로 기록
-     */
+
+    // ==========================================
+    // 일정 없는 날
+    // ==========================================
+
     @Transactional
     public void saveOrUpdateBaseDay(
             User user,
@@ -115,6 +137,19 @@ public class ExposureRecordService {
             return;
         }
 
+        // 같은 날짜에 실제 일정 기록이 있으면 대기일 기록을 만들지 않는다.
+        boolean hasScheduleRecord =
+                exposureRecordRepository
+                        .findByUserAndDate(user, date)
+                        .stream()
+                        .anyMatch(record ->
+                                record.getSchedule() != null
+                        );
+
+        if (hasScheduleRecord) {
+            return;
+        }
+
         ExposureRecord record =
                 exposureRecordRepository
                         .findByUserAndDateAndLocationTypeAndScheduleIsNull(
@@ -124,15 +159,13 @@ public class ExposureRecordService {
                         )
                         .orElse(null);
 
+
         if (record == null) {
 
             record =
                     ExposureRecord.builder()
                             .user(user)
-
-                            // 일정 없는 날이므로 null
                             .schedule(null)
-
                             .airportCode(airportCode)
                             .locationType(LocationType.ARRIVAL)
                             .uvIndex(result.maxUv())
@@ -156,10 +189,13 @@ public class ExposureRecordService {
                             )
                             .build();
 
-            exposureRecordRepository.save(record);
+            exposureRecordRepository.save(
+                    record
+            );
 
             return;
         }
+
 
         record.updateCalculation(
                 airportCode,
@@ -178,17 +214,23 @@ public class ExposureRecordService {
         );
     }
 
-    /**
-     * 일정 있는 날의 외출 상태 변경
-     */
+
+    // ==========================================
+    // 날짜별 외출 상태 동기화
+    // ==========================================
+
     @Transactional
-    public void updateOuting(
-            Schedule schedule,
+    public void updateOutingByDate(
+            User user,
+            LocalDate date,
             boolean outing
     ) {
 
         exposureRecordRepository
-                .findBySchedule(schedule)
+                .findByUserAndDate(
+                        user,
+                        date
+                )
                 .forEach(record ->
                         record.updateOuting(
                                 outing
@@ -196,26 +238,53 @@ public class ExposureRecordService {
                 );
     }
 
-    /**
-     * 일정 없는 날의 외출 상태 변경
-     */
     @Transactional
-    public void updateBaseDayOuting(
+    public void applySunscreenByDate(
             User user,
             LocalDate date,
-            boolean outing
+            Long sunscreenId,
+            boolean applied
     ) {
 
-        exposureRecordRepository
-                .findByUserAndDateAndLocationTypeAndScheduleIsNull(
+        Sunscreen sunscreen =
+                sunscreenRepository.findById(sunscreenId)
+                        .orElseThrow(() ->
+                                new IllegalArgumentException(
+                                        "해당 선크림을 찾을 수 없습니다."
+                                )
+                        );
+
+        List<ExposureRecord> records =
+                exposureRecordRepository.findByUserAndDate(
                         user,
-                        date,
-                        LocationType.ARRIVAL
+                        date
+                );
+
+        if (records.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "해당 날짜의 노출 기록을 찾을 수 없습니다."
+            );
+        }
+
+        records.forEach(record ->
+                record.applySunscreen(
+                        sunscreen,
+                        applied
                 )
-                .ifPresent(record ->
-                        record.updateOuting(
-                                outing
-                        )
+        );
+    }
+
+
+    @Transactional
+    public void deleteBaseDayRecord(
+            User user,
+            LocalDate date
+    ) {
+        exposureRecordRepository
+                .deleteByUserAndDateAndScheduleIsNull(
+                        user,
+                        date
                 );
     }
+
 }
